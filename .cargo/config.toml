@@ -1,0 +1,30 @@
+# Linux target configuration
+[target.x86_64-unknown-linux-gnu]
+rustflags = [
+  # (Nightly) Make the current crate share its generic instantiations
+  "-Zshare-generics=y",
+]
+
+# macOS target configurations (both Intel and Apple Silicon)
+[target.x86_64-apple-darwin]
+rustflags = [
+  # (Nightly) Make the current crate share its generic instantiations
+  "-Zshare-generics=y",
+]
+
+[target.aarch64-apple-darwin]
+rustflags = [
+  # (Nightly) Make the current crate share its generic instantiations
+  "-Zshare-generics=y",
+]
+
+# Profile configurations for faster compile times
+[profile.dev]
+# Enable incremental compilation
+incremental = true
+# Keep debug builds fast to compile
+opt-level = 0
+
+# Optimize dependencies even in debug mode for faster runtime
+[profile.dev.package."*"]
+opt-level = 3

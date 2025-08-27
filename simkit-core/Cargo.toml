@@ -1,0 +1,11 @@
+[package]
+name = "simkit-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy = { version = "0.16", features = ["dynamic_linking"] }
+bevy_ecs_tilemap = "0.16"
+bevy_pancam = "0.18"
+bevy_asset_loader = "0.23"
+log = { version = "*", features = ["max_level_debug", "release_max_level_warn"] }
