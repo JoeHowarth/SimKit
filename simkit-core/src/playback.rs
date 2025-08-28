@@ -22,23 +22,17 @@ impl Default for Playback {
 }
 
 impl Playback {
-    pub fn should_step(playback: Res<Playback>, time: Res<SimStepTimer>) -> bool {
-        dbg!(
-            playback.is_paused,
-            time.0.elapsed().as_millis(),
-            playback.time_per_tick.as_millis()
-        );
-        !playback.is_paused && time.0.elapsed() > playback.time_per_tick
+    pub fn should_step(playback: Res<Playback>) -> bool {
+        if playback.is_paused {
+            debug!("Playback is paused");
+        }
+        !playback.is_paused
     }
 
-    pub fn inc_tick(mut playback: ResMut<Playback>, mut time: ResMut<SimStepTimer>) {
+    pub fn inc_tick(mut playback: ResMut<Playback>) {
         playback.tick.0 += 1;
-        time.0 = Instant::now();
     }
 }
-
-#[derive(Resource)]
-pub struct SimStepTimer(pub Instant);
 
 #[derive(Debug, Clone, Reflect)]
 pub enum PlayBackCommand {
@@ -48,16 +42,14 @@ pub enum PlayBackCommand {
 }
 
 pub fn setup_playback_resource(mut commands: Commands) {
-    commands.insert_resource(Playback {
-        tick: Tick(0),
-        time_per_tick: Duration::from_millis(10),
-        is_paused: false,
-    });
+    commands.init_resource::<Playback>();
 }
 
 pub fn ensure_playback_resource(
     mut playback: ResMut<Playback>,
     mut event: EventReader<SimCommand>,
+    // get mutable fixed update timer for builin bevy FixedUpdate schedule
+    mut fixed_update_timer: ResMut<Time<Fixed>>,
 ) {
     for sim_command in event.read() {
         match sim_command.command_type {
@@ -80,4 +72,6 @@ pub fn ensure_playback_resource(
             _ => {}
         };
     }
+
+    fixed_update_timer.set_timestep(playback.time_per_tick);
 }

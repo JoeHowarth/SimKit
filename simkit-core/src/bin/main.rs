@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use bevy::prelude::*;
-use simkit_core::{CorePlugin, Simulation};
+use simkit_core::{CorePlugin, Simulation, Tick};
 
 struct MySimulation;
 
@@ -19,8 +19,13 @@ impl Simulation for MySimulation {
     type Actions = MyAction;
     type Event = MyEvent;
 
-    fn step(&mut self, state: Self::State, actions: VecDeque<&Self::Actions>) -> (Self::State, VecDeque<Self::Event>) {
-        info!("Stepping");
+    fn step(
+        &mut self,
+        tick: Tick,
+        state: Self::State,
+        actions: VecDeque<&Self::Actions>,
+    ) -> (Self::State, VecDeque<Self::Event>) {
+        info!("Stepping: {}", tick.0);
         (state, VecDeque::new())
     }
 }
