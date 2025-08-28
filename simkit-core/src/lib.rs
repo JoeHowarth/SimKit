@@ -5,15 +5,11 @@ use std::{
     io::{BufRead, Write},
     path::PathBuf,
     sync::Arc,
-    time::Instant,
 };
 
 use bevy::{
     prelude::*,
-    reflect::{
-        serde::{ReflectDeserializer, ReflectSerializer},
-        GetTypeRegistration, TypeRegistry, Typed,
-    },
+    reflect::{GetTypeRegistration, Typed},
 };
 use bevy_asset_loader::loading_state::{LoadingState, LoadingStateAppExt};
 
@@ -110,7 +106,7 @@ pub trait Simulation: Sync + Send + 'static {
         &mut self,
         tick: Tick,
         state: Self::State,
-        actions: VecDeque<&Self::Actions>,
+        actions: &[&Self::Actions],
     ) -> (Self::State, VecDeque<Self::Event>);
 }
 
@@ -148,11 +144,18 @@ impl<S: Simulation> Plugin for CorePlugin<S> {
             )
             .add_plugins(MenuPlugin)
             .init_resource::<Playback>()
+            .init_resource::<JournalConfig>()
             .init_resource::<S::State>()
             .insert_resource(SimulationResource { simulation })
             .add_event::<S::Event>()
             .add_event::<S::Actions>()
-            .add_systems(OnEnter(AppState::InGame), playback::setup_playback_resource)
+            .add_systems(
+                OnEnter(AppState::InGame),
+                (
+                    playback::setup_playback_resource,
+                    JournalConfig::init_journal_file::<S>,
+                ),
+            )
             .add_systems(
                 Update,
                 playback::ensure_playback_resource.run_if(in_state(AppState::InGame)),
@@ -192,12 +195,17 @@ fn run_sim_step<S: Simulation>(
     mut actions: EventReader<S::Actions>,
     mut events: EventWriter<S::Event>,
     mut simulation: ResMut<SimulationResource<S>>,
+    journal_config: Res<JournalConfig>,
 ) {
-    let actions = actions.read().collect::<VecDeque<_>>();
-    let (new_state, new_events) = simulation
-        .simulation
-        .step(playback.tick, state.clone(), actions);
+    let actions = actions.read().collect::<Vec<_>>();
+    let (new_state, new_events) =
+        simulation
+            .simulation
+            .step(playback.tick, state.clone(), &actions);
     *state = new_state;
+
+    JournalConfig::write_update::<S>(journal_config, &state, &actions, &new_events);
+
     for event in new_events {
         events.write(event);
     }
@@ -206,12 +214,21 @@ fn run_sim_step<S: Simulation>(
 #[derive(Resource)]
 struct JournalConfig {
     pub path: PathBuf,
+    pub enabled: bool,
 }
 
 #[derive(Reflect, Clone, Serialize, Deserialize)]
+#[serde(bound(
+    serialize = "S::State: serde::Serialize, S::Actions: serde::Serialize, S::Event: serde::Serialize",
+    deserialize = "S::State: serde::de::DeserializeOwned, S::Actions: serde::de::DeserializeOwned, S::Event: serde::de::DeserializeOwned"
+))]
 struct Journal<S: Simulation>(pub Vec<JournalLine<S::State, S::Actions, S::Event>>);
 
 #[derive(Debug, Clone, Reflect, Serialize, Deserialize)]
+#[serde(bound(
+    serialize = "S: serde::Serialize, A: serde::Serialize, E: serde::Serialize",
+    deserialize = "S: serde::de::DeserializeOwned, A: serde::de::DeserializeOwned, E: serde::de::DeserializeOwned"
+))]
 struct JournalLine<S: POD, A: POD, E: POD> {
     pub tick: Tick,
     pub state: S,
@@ -220,13 +237,47 @@ struct JournalLine<S: POD, A: POD, E: POD> {
 }
 
 impl JournalConfig {
+    fn init_journal_file<S: Simulation>(
+        journal_config: Res<JournalConfig>,
+        init_state: Res<S::State>,
+    ) {
+        if !journal_config.enabled {
+            return;
+        }
+
+        let file = std::fs::File::create(journal_config.path.clone()).unwrap();
+        let mut writer = std::io::BufWriter::new(file);
+        let line = JournalLine::<S::State, S::Actions, S::Event> {
+            tick: Tick(0),
+            state: init_state.clone(),
+            actions: Vec::new(),
+            events: Vec::new(),
+        };
+        serde_json::to_writer(&mut writer, &line).unwrap();
+        writer.write_all(b"\n").unwrap();
+        writer.flush().unwrap();
+    }
+
     fn write_update<'a, S: Simulation>(
-        &self,
+        journal_config: Res<JournalConfig>,
         state: &S::State,
         actions: &[&S::Actions],
         events: impl IntoIterator<Item = &'a S::Event>,
     ) {
-        let file = std::fs::File::create(self.path.clone()).unwrap();
+        dbg!("here");
+        if !journal_config.enabled {
+            debug!("Journal is disabled");
+            info!("Journal is disabled");
+            dbg!("journal is disabled");
+            return;
+        }
+
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(journal_config.path.clone())
+            .unwrap();
+
         let mut writer = std::io::BufWriter::new(file);
 
         let line = JournalLine::<S::State, S::Actions, S::Event> {
@@ -239,11 +290,10 @@ impl JournalConfig {
             events: events.into_iter().cloned().collect(),
         };
 
-        // let line = ReflectSerializer::new(&line, &registry);
-        // serde_json::to_writer(&mut writer, &line).unwrap();
-
+        info!(tick = line.tick.0, "Writing update to journal");
         serde_json::to_writer(&mut writer, &line).unwrap();
 
+        writer.write_all(b"\n").unwrap();
         writer.flush().unwrap();
     }
 
@@ -256,6 +306,7 @@ impl JournalConfig {
             let line = serde_json::from_str(&line).unwrap();
             lines.push(line);
         }
+        debug!("Loaded {} lines from journal", lines.len());
         Journal(lines)
     }
 }
@@ -264,6 +315,7 @@ impl Default for JournalConfig {
     fn default() -> Self {
         Self {
             path: PathBuf::from("journal.json"),
+            enabled: true,
         }
     }
 }

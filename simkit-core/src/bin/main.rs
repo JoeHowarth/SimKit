@@ -1,18 +1,19 @@
 use std::collections::VecDeque;
 
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 use simkit_core::{CorePlugin, Simulation, Tick};
 
 struct MySimulation;
 
-#[derive(Debug, Clone, Reflect, Default, Resource, Hash, PartialEq, Eq)]
-struct MyState;
+#[derive(Debug, Clone, Reflect, Default, Resource, Hash, PartialEq, Eq, Serialize, Deserialize)]
+struct MyState(i32);
 
-#[derive(Debug, Clone, Reflect, Event, Default, Hash, PartialEq, Eq)]
-struct MyAction;
+#[derive(Debug, Clone, Reflect, Event, Default, Hash, PartialEq, Eq, Serialize, Deserialize)]
+struct MyAction(i32);
 
-#[derive(Debug, Clone, Reflect, Event, Hash, PartialEq, Eq)]
-struct MyEvent;
+#[derive(Debug, Clone, Reflect, Event, Hash, PartialEq, Eq, Serialize, Deserialize)]
+struct MyEvent(i32);
 
 impl Simulation for MySimulation {
     type State = MyState;
@@ -23,10 +24,13 @@ impl Simulation for MySimulation {
         &mut self,
         tick: Tick,
         state: Self::State,
-        actions: VecDeque<&Self::Actions>,
+        _actions: &[&Self::Actions],
     ) -> (Self::State, VecDeque<Self::Event>) {
         info!("Stepping: {}", tick.0);
-        (state, VecDeque::new())
+        let mut queue = VecDeque::new();
+        queue.push_back(MyEvent(state.0 * 2 + 1));
+
+        (MyState(state.0 + 1), queue)
     }
 }
 fn main() {
