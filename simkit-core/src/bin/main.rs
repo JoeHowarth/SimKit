@@ -2,7 +2,10 @@ use std::collections::VecDeque;
 
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
-use simkit_core::{CorePlugin, Simulation, Tick};
+use simkit_core::{
+    simulation::{SimPlugin, Simulation},
+    KitCorePlugin, Tick,
+};
 
 struct MySimulation;
 
@@ -33,9 +36,26 @@ impl Simulation for MySimulation {
         (MyState(state.0 + 1), queue)
     }
 }
+
+pub fn camera_setup(mut commands: Commands) {
+    commands.spawn((
+        Camera2d,
+        bevy_pancam::PanCam {
+            move_keys: bevy_pancam::DirectionKeys::wasd(),
+            grab_buttons: vec![MouseButton::Right, MouseButton::Left],
+            min_scale: 0.25,
+            max_scale: 5.0,
+            ..default()
+        },
+    ));
+}
+
 fn main() {
     let mut app = App::new();
     app.add_plugins(DefaultPlugins);
-    app.add_plugins(CorePlugin::new(MySimulation));
+    app.add_plugins(KitCorePlugin);
+    app.add_plugins(SimPlugin::new(MySimulation));
+
+    app.add_systems(Startup, camera_setup);
     app.run();
 }

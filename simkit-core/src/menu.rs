@@ -1,7 +1,4 @@
-use bevy::{
-    prelude::*,
-    app::AppExit,
-};
+use bevy::{app::AppExit, prelude::*};
 
 use crate::AppState;
 
@@ -30,9 +27,6 @@ struct MenuUI;
 struct PlayButton;
 
 fn setup_menu(mut commands: Commands) {
-    // Camera for UI
-    commands.spawn((Camera2d::default(), MenuUI));
-
     // Root UI container
     commands
         .spawn((
@@ -146,7 +140,8 @@ fn global_exit_handler(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut app_exit_events: EventWriter<AppExit>,
 ) {
-    if keyboard_input.pressed(KeyCode::ControlLeft) || keyboard_input.pressed(KeyCode::ControlRight) {
+    if keyboard_input.pressed(KeyCode::ControlLeft) || keyboard_input.pressed(KeyCode::ControlRight)
+    {
         if keyboard_input.just_pressed(KeyCode::KeyC) {
             app_exit_events.write(AppExit::Success);
         }
