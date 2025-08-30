@@ -1,5 +1,5 @@
 [workspace]
-members = ["simkit-core"]
+members = ["simkit-core", "stitchlands"]
 resolver = "2"
 
 [workspace.dependencies]

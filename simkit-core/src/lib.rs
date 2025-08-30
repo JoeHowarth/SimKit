@@ -57,59 +57,70 @@ pub enum KitSystemSet {
 }
 }
 
-pub struct KitCorePlugin;
+pub struct KitCoreBase {
+    pub use_states: bool,
+    pub with_menu: bool,
+}
 
-impl Plugin for KitCorePlugin {
+impl Default for KitCoreBase {
+    fn default() -> Self {
+        Self { use_states: true, with_menu: true }
+    }
+}
+
+impl Plugin for KitCoreBase {
     fn build(&self, app: &mut App) {
-        app.add_plugins(MenuPlugin)
-            // register types
-            .register_type::<Tick>()
+        if self.with_menu { app.add_plugins(MenuPlugin); }
+
+        app.register_type::<Tick>()
             .register_type::<GameId>()
             .register_type::<KitCommandType>()
             .register_type::<KitCommand>()
             .register_type::<Playback>()
             .add_event::<KitCommand>()
-            // handle states and transitions
-            .insert_state(AppState::AssetLoading)
-            .add_loading_state(
-                LoadingState::new(AppState::AssetLoading).continue_to_state(AppState::Menu),
-            )
-            .add_systems(
-                OnEnter(AppState::InGame),
-                (playback::setup_playback_resource,),
-            )
-            // insert resources
             .init_resource::<Playback>()
-            .init_resource::<KeyCodeToCommandMap>()
-            // configure system sets
-            .configure_sets(
-                FixedUpdate,
-                (
-                    // Simulation systems only run on tick
-                    KitSystemSet::Tick,
-                    KitSystemSet::PreStep,
-                    KitSystemSet::Step,
-                    KitSystemSet::PostStep,
-                )
-                    .chain()
-                    .run_if(Playback::should_step)
-                    .run_if(in_state(AppState::InGame)),
-            )
-            .configure_sets(
-                Update,
-                (KitSystemSet::HandleCommands, KitSystemSet::PerFrame)
-                    .chain()
-                    .run_if(in_state(AppState::InGame)),
-            )
-            // add systems
-            .add_systems(
-                Update,
-                playback::ensure_playback_resource.run_if(in_state(AppState::InGame)),
-            )
-            .add_systems(
-                FixedUpdate,
-                (Playback::inc_tick.in_set(KitSystemSet::Tick),),
-            );
+            .init_resource::<KeyCodeToCommandMap>();
+
+        if self.use_states {
+            app.insert_state(AppState::AssetLoading)
+                .add_loading_state(LoadingState::new(AppState::AssetLoading).continue_to_state(AppState::Menu))
+                .add_systems(OnEnter(AppState::InGame), (playback::setup_playback_resource,));
+        } else {
+            app.add_systems(Startup, playback::setup_playback_resource);
+        }
+
+        let mut fixed = (
+            KitSystemSet::Tick,
+            KitSystemSet::PreStep,
+            KitSystemSet::Step,
+            KitSystemSet::PostStep,
+        ).chain().run_if(Playback::should_step);
+        if self.use_states { fixed = fixed.run_if(in_state(AppState::InGame)); }
+        app.configure_sets(FixedUpdate, fixed);
+
+        let mut update = (KitSystemSet::HandleCommands, KitSystemSet::PerFrame).chain();
+        if self.use_states { update = update.run_if(in_state(AppState::InGame)); }
+        app.configure_sets(Update, update);
+
+        if self.use_states {
+            app.add_systems(Update, playback::ensure_playback_resource.run_if(in_state(AppState::InGame)));
+        } else {
+            app.add_systems(Update, playback::ensure_playback_resource);
+        }
+
+        app.add_systems(FixedUpdate, (Playback::inc_tick.in_set(KitSystemSet::Tick),));
+    }
+}
+
+pub struct KitCorePlugin;
+impl Plugin for KitCorePlugin {
+    fn build(&self, app: &mut App) { app.add_plugins(KitCoreBase::default()); }
+}
+
+pub struct KitCoreHeadlessPlugin;
+impl Plugin for KitCoreHeadlessPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_plugins(KitCoreBase { use_states: false, with_menu: false });
     }
 }
 
