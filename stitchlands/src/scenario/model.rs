@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
-use simkit_core::ids::{ItemId, PawnId, ZoneId};
+use simkit_core::grid::TileId;
 use std::collections::HashMap;
 
 // Basic map/tiles; unused in 0.b beyond size
@@ -31,17 +31,11 @@ impl Default for MapSize {
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 pub struct TileDef {
-    pub pos: TilePos,
+    pub pos: TileId,
     #[serde(default)]
     pub walkable: bool,
     #[serde(default)]
     pub terrain: Terrain,
-}
-
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, Default)]
-pub struct TilePos {
-    pub x: i32,
-    pub y: i32,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, Default)]
@@ -54,7 +48,7 @@ pub enum Terrain {
 pub struct PawnDef {
     pub id: Option<u64>,
     pub name: Option<String>,
-    pub pos: Option<TilePos>,
+    pub pos: Option<TileId>,
     #[serde(default)]
     pub needs: NeedsDef,
     #[serde(default)]
@@ -72,44 +66,21 @@ pub struct ItemDef {
     pub id: Option<u64>,
     pub kind: String,
     pub qty: u32,
-    pub pos: Option<TilePos>,
+    pub pos: Option<TileId>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ZoneDef {
     pub id: Option<u64>,
     pub kind: String,
-    pub rect: Option<(TilePos, TilePos)>,
+    pub rect: Option<(TileId, TileId)>,
     #[serde(default)]
     pub filters: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub enum DesignationDef {
-    Harvest(TilePos),
-}
-
-// Runtime components for spawned entities (minimal)
-#[derive(Component, Debug, Clone, Copy, Serialize)]
-pub struct Pawn(pub PawnId);
-
-#[derive(Component, Debug, Clone, Copy, Serialize)]
-pub struct Position(pub TilePos);
-
-// Minimal item/zones components for spawned entities
-#[derive(Component, Debug, Clone, Serialize)]
-pub struct Item {
-    pub id: ItemId,
-    pub kind: String,
-    pub qty: u32,
-}
-
-#[derive(Component, Debug, Clone, Serialize)]
-pub struct Zone {
-    pub id: ZoneId,
-    pub kind: String,
-    pub rect: (TilePos, TilePos),
-    pub filters: Vec<String>,
+    Harvest(TileId),
 }
 
 // Editable form used in RON files (allows many omissions)

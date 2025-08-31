@@ -1,7 +1,10 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
+use simkit_core::grid::TileId;
+use simkit_core::ids::IdIndex;
 
-use crate::scenario::model::{Item, Pawn, Position, Zone};
+use crate::components::{Item, Pawn, Zone};
+use crate::ids::{ItemId, PawnId, ZoneId};
 use simkit_core::Playback;
 
 pub fn stable_hash_json<T: Serialize>(value: &T) -> String {
@@ -22,23 +25,17 @@ fn fnv1a64_hex(bytes: &[u8]) -> String {
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct PawnEntry {
-    pub id: u64,
-    pub x: i32,
-    pub y: i32,
+    pub pawn: Pawn,
+    pub pos: TileId,
 }
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct ItemEntry {
-    pub id: u64,
-    pub kind: String,
-    pub qty: u32,
-    pub x: i32,
-    pub y: i32,
+    pub item: Item,
+    pub pos: TileId,
 }
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct ZoneEntry {
-    pub id: u64,
-    pub kind: String,
-    pub rect: ((i32, i32), (i32, i32)),
+    pub zone: Zone,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -53,39 +50,31 @@ pub struct WorldSnapshot {
 pub fn build_world_snapshot(
     playback: &Playback,
     scenario_seed: Option<u64>,
-    pawns: &[(Pawn, Position)],
-    items: &[(Item, Position)],
+    pawns: &[(Pawn, TileId)],
+    items: &[(Item, TileId)],
     zones: &[Zone],
 ) -> WorldSnapshot {
     let mut pawn_entries: Vec<PawnEntry> = pawns
         .iter()
         .map(|(p, pos)| PawnEntry {
-            id: p.0 .0,
-            x: pos.0.x,
-            y: pos.0.y,
+            pawn: *p,
+            pos: *pos,
         })
         .collect();
-    pawn_entries.sort_by_key(|e| e.id);
+    pawn_entries.sort_by_key(|e| e.pawn.id);
     let mut item_entries: Vec<ItemEntry> = items
         .iter()
         .map(|(it, pos)| ItemEntry {
-            id: it.id.0,
-            kind: it.kind.clone(),
-            qty: it.qty,
-            x: pos.0.x,
-            y: pos.0.y,
+            item: it.clone(),
+            pos: *pos,
         })
         .collect();
-    item_entries.sort_by_key(|e| e.id);
+    item_entries.sort_by_key(|e| e.item.id);
     let mut zone_entries: Vec<ZoneEntry> = zones
         .iter()
-        .map(|z| ZoneEntry {
-            id: z.id.0,
-            kind: z.kind.clone(),
-            rect: ((z.rect.0.x, z.rect.0.y), (z.rect.1.x, z.rect.1.y)),
-        })
+        .map(|z| ZoneEntry { zone: z.clone() })
         .collect();
-    zone_entries.sort_by_key(|e| e.id);
+    zone_entries.sort_by_key(|e| e.zone.id);
 
     WorldSnapshot {
         tick: playback.tick.0,
@@ -99,78 +88,55 @@ pub fn build_world_snapshot(
 // Load a snapshot back into the world using the same serializable definition
 pub fn load_world_snapshot(
     commands: &mut Commands,
-    pawn_index: &mut simkit_core::ids::IdIndex<simkit_core::ids::PawnId>,
-    item_index: &mut simkit_core::ids::IdIndex<simkit_core::ids::ItemId>,
-    zone_index: &mut simkit_core::ids::IdIndex<simkit_core::ids::ZoneId>,
+    pawn_index: &mut IdIndex<PawnId>,
+    item_index: &mut IdIndex<ItemId>,
+    zone_index: &mut IdIndex<ZoneId>,
     snapshot: &WorldSnapshot,
 ) {
-    use simkit_core::ids::{ItemId, PawnId, ZoneId};
     // Spawn pawns
     for p in snapshot.pawns.iter() {
-        let typed = PawnId(p.id);
         let entity = commands
             .spawn((
                 crate::WorldTag,
-                Name::new(format!("Pawn#{}", typed.0)),
-                Pawn(typed),
-                Position(crate::scenario::model::TilePos { x: p.x, y: p.y }),
+                Name::new(format!("Pawn#{}", p.pawn.id.0)),
+                p.pawn,
+                p.pos,
             ))
             .id();
-        pawn_index.insert(typed, entity);
+        pawn_index.insert(p.pawn.id, entity);
     }
     // Spawn items
     for it in snapshot.items.iter() {
-        let typed = ItemId(it.id);
         let entity = commands
             .spawn((
                 crate::WorldTag,
-                Name::new(format!("Item#{}", typed.0)),
-                Item {
-                    id: typed,
-                    kind: it.kind.clone(),
-                    qty: it.qty,
-                },
-                Position(crate::scenario::model::TilePos { x: it.x, y: it.y }),
+                Name::new(format!("Item#{}", it.item.id.0)),
+                it.item.clone(),
+                it.pos,
             ))
             .id();
-        item_index.insert(typed, entity);
+        item_index.insert(it.item.id, entity);
     }
     // Spawn zones
     for z in snapshot.zones.iter() {
-        let typed = ZoneId(z.id);
         let entity = commands
             .spawn((
                 crate::WorldTag,
-                Name::new(format!("Zone#{}", typed.0)),
-                Zone {
-                    id: typed,
-                    kind: z.kind.clone(),
-                    rect: (
-                        crate::scenario::model::TilePos {
-                            x: (z.rect).0 .0,
-                            y: (z.rect).0 .1,
-                        },
-                        crate::scenario::model::TilePos {
-                            x: (z.rect).1 .0,
-                            y: (z.rect).1 .1,
-                        },
-                    ),
-                    filters: vec![],
-                },
+                Name::new(format!("Zone#{}", z.zone.id.0)),
+                z.zone.clone(),
             ))
             .id();
-        zone_index.insert(typed, entity);
+        zone_index.insert(z.zone.id, entity);
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::components::{Item, Pawn};
+
     use super::*;
-    use bevy::prelude::*;
-    use simkit_core::{
-        ids::{IdIndex, ItemId, PawnId, ZoneId},
-        Playback,
-    };
+
+    use simkit_core::{grid::TileId, ids::IdIndex, Playback};
 
     #[derive(Resource)]
     struct TestSnap(WorldSnapshot);
@@ -197,24 +163,30 @@ mod tests {
             tick: 7,
             scenario_seed: Some(42),
             pawns: vec![
-                PawnEntry { id: 1, x: 2, y: 3 },
                 PawnEntry {
-                    id: 1000,
-                    x: 4,
-                    y: 5,
+                    pawn: Pawn { id: PawnId(1) },
+                    pos: TileId { x: 2, y: 3 },
+                },
+                PawnEntry {
+                    pawn: Pawn { id: PawnId(1000) },
+                    pos: TileId { x: 4, y: 5 },
                 },
             ],
             items: vec![ItemEntry {
-                id: 2000,
-                kind: "Grain".into(),
-                qty: 5,
-                x: 1,
-                y: 1,
+                item: Item {
+                    id: ItemId(2000),
+                    kind: "Grain".into(),
+                    qty: 5,
+                },
+                pos: TileId { x: 1, y: 1 },
             }],
             zones: vec![ZoneEntry {
-                id: 3000,
-                kind: "Stockpile".into(),
-                rect: ((0, 0), (2, 2)),
+                zone: Zone {
+                    id: ZoneId(3000),
+                    kind: "Stockpile".into(),
+                    rect: ((TileId { x: 0, y: 0 }), (TileId { x: 2, y: 2 })),
+                    filters: vec![],
+                },
             }],
         };
 
@@ -233,15 +205,9 @@ mod tests {
 
         // Re-extract
         let world = app.world_mut();
-        let mut pawn_q = world.query::<(
-            &crate::scenario::model::Pawn,
-            &crate::scenario::model::Position,
-        )>();
-        let mut item_q = world.query::<(
-            &crate::scenario::model::Item,
-            &crate::scenario::model::Position,
-        )>();
-        let mut zone_q = world.query::<&crate::scenario::model::Zone>();
+        let mut pawn_q = world.query::<(&Pawn, &TileId)>();
+        let mut item_q = world.query::<(&Item, &TileId)>();
+        let mut zone_q = world.query::<&Zone>();
 
         let pawns_vec: Vec<_> = pawn_q.iter(world).map(|(p, pos)| (*p, *pos)).collect();
         let items_vec: Vec<_> = item_q
@@ -250,7 +216,7 @@ mod tests {
             .collect();
         let zones_vec: Vec<_> = zone_q.iter(world).cloned().collect();
 
-        let playback = world.resource::<Playback>().clone();
+        let playback = *world.resource::<Playback>();
         let new_snap = build_world_snapshot(
             &playback,
             snap.scenario_seed,

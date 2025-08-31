@@ -3,7 +3,10 @@ use bevy::prelude::*;
 use crate::WorldTag;
 
 use super::loader::LoadedScenarioMeta;
-use simkit_core::ids::{IdAllocator, IdIndex, ItemId, PawnId, ZoneId};
+use crate::ids::{ItemId, PawnId, ZoneId};
+use crate::world::WorldGrid;
+use simkit_core::grid::index::TileMapIndex;
+use simkit_core::ids::{IdAllocator, IdIndex};
 
 pub fn cleanup_world(mut commands: Commands, tagged: Query<Entity, With<WorldTag>>) {
     // Despawn all runtime-tagged entities
@@ -19,4 +22,9 @@ pub fn cleanup_world(mut commands: Commands, tagged: Query<Entity, With<WorldTag
     commands.insert_resource::<IdIndex<PawnId>>(Default::default());
     commands.insert_resource::<IdIndex<ItemId>>(Default::default());
     commands.insert_resource::<IdIndex<ZoneId>>(Default::default());
+
+    // Remove world-grid and occupancy resources
+    commands.remove_resource::<WorldGrid>();
+    commands.remove_resource::<TileMapIndex<PawnId>>();
+    commands.remove_resource::<TileMapIndex<ItemId>>();
 }

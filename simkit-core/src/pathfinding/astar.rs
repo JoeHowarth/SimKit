@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
 
-use crate::grid::{GridConfig, Grid2D, TileId};
+use crate::grid::{Grid2D, GridConfig, TileId};
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 struct Node {
@@ -35,8 +35,8 @@ impl PartialOrd for Node {
 }
 
 fn heuristic(a: TileId, b: TileId) -> u32 {
-    let dx = (a.x - b.x).abs() as u32;
-    let dy = (a.y - b.y).abs() as u32;
+    let dx = (a.x - b.x).unsigned_abs();
+    let dy = (a.y - b.y).unsigned_abs();
     let min = dx.min(dy);
     let max = dx.max(dy);
     14 * min + 10 * (max - min)
@@ -122,13 +122,16 @@ mod tests {
 
     #[test]
     fn deterministic_path() {
-        let cfg = GridConfig { width: 5, height: 5 };
+        let cfg = GridConfig {
+            width: 5,
+            height: 5,
+        };
         let mut walk = Grid2D::new(cfg, true);
         // wall column at x=1 except opening at y=4
-        walk.get_mut(TileId::new(1, 0)).map(|v| *v = false);
-        walk.get_mut(TileId::new(1, 1)).map(|v| *v = false);
-        walk.get_mut(TileId::new(1, 2)).map(|v| *v = false);
-        walk.get_mut(TileId::new(1, 3)).map(|v| *v = false);
+        *walk.get_mut(TileId::new(1, 0)).unwrap() = false;
+        *walk.get_mut(TileId::new(1, 1)).unwrap() = false;
+        *walk.get_mut(TileId::new(1, 2)).unwrap() = false;
+        *walk.get_mut(TileId::new(1, 3)).unwrap() = false;
 
         let start = TileId::new(0, 0);
         let goal = TileId::new(4, 4);
@@ -139,4 +142,3 @@ mod tests {
         assert_eq!(p1.last().copied(), Some(goal));
     }
 }
-

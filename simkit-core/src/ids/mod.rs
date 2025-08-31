@@ -1,32 +1,19 @@
 use bevy::prelude::*;
-use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fmt::Debug, hash::Hash, marker::PhantomData};
 
 // Typed ID newtypes used across crates. Keep minimal now; extend later.
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Reflect, Serialize, Deserialize)]
-pub struct PawnId(pub u64);
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Reflect, Serialize, Deserialize)]
-pub struct ItemId(pub u64);
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Reflect, Serialize, Deserialize)]
-pub struct ZoneId(pub u64);
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Reflect, Serialize, Deserialize)]
-pub struct BlueprintId(pub u64);
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Reflect, Serialize, Deserialize)]
-pub struct BedId(pub u64);
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Reflect, Serialize, Deserialize)]
-pub struct TaskId(pub u64);
 
 pub trait SimId: Copy + Eq + Hash + Send + Sync + 'static {
     fn from_u64(v: u64) -> Self;
     fn to_u64(self) -> u64;
 }
 
+pub trait HasSimId: Component {
+    type Id: SimId;
+    fn id(&self) -> Self::Id;
+}
+
+#[macro_export]
 macro_rules! impl_simid {
     ($t:ty) => {
         impl SimId for $t {
@@ -42,12 +29,19 @@ macro_rules! impl_simid {
     };
 }
 
-impl_simid!(PawnId);
-impl_simid!(ItemId);
-impl_simid!(ZoneId);
-impl_simid!(BlueprintId);
-impl_simid!(BedId);
-impl_simid!(TaskId);
+#[macro_export]
+macro_rules! impl_hassimid {
+    ($t:ty, $id:ty) => {
+        impl HasSimId for $t {
+            type Id = $id;
+
+            #[inline]
+            fn id(&self) -> Self::Id {
+                self.id
+            }
+        }
+    };
+}
 
 #[derive(Resource, Debug, Clone)]
 pub struct IdAllocator<T: SimId> {

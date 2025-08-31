@@ -1,12 +1,23 @@
 #![allow(clippy::type_complexity, clippy::too_many_arguments)]
+#![feature(let_chains)]
 
 use bevy::prelude::*;
 use rand::{rngs::SmallRng, SeedableRng};
 
-use crate::snapshot::{build_world_snapshot, stable_hash_json};
-use simkit_core::{AppState, KitSystemSet, Playback};
+use crate::{
+    components::{Item, Pawn, Zone},
+    snapshot::{build_world_snapshot, stable_hash_json},
+};
+use simkit_core::{
+    grid::{index::sync_tile_index, TileId},
+    AppState, KitSystemSet, Playback,
+};
 
+pub mod components;
+pub mod ids;
 pub mod scenario;
+pub mod snapshot;
+pub mod world;
 use crate::scenario::LoadedScenarioMeta;
 
 // Resources and markers
@@ -115,44 +126,25 @@ impl Plugin for StitchlandsCorePlugin {
                 ),
             )
             // Systems (PreStep)
+            // consollidate into a single add_systems call
             .add_systems(
                 FixedUpdate,
-                reset_edit_budget.in_set(StitchPreStepSet::ResetEditBudget),
-            )
-            .add_systems(
-                FixedUpdate,
-                needs_daemon_emit_stub.in_set(StitchPreStepSet::NeedsDaemonEmit),
-            )
-            .add_systems(
-                FixedUpdate,
-                designation_spawner_stub.in_set(StitchPreStepSet::DesignationSpawner),
-            )
-            .add_systems(
-                FixedUpdate,
-                task_prune_stub.in_set(StitchPreStepSet::TaskPrune),
-            )
-            .add_systems(
-                FixedUpdate,
-                path_cache_prepare_stub.in_set(StitchPreStepSet::PathCachePrepare),
-            )
-            // Systems (Step)
-            .add_systems(
-                FixedUpdate,
-                hard_need_interrupts_stub.in_set(StitchStepSet::HardNeedInterrupts),
-            )
-            .add_systems(
-                FixedUpdate,
-                scheduler_assign_stub.in_set(StitchStepSet::SchedulerAssign),
-            )
-            .add_systems(FixedUpdate, job_tick_stub.in_set(StitchStepSet::JobTick))
-            // Systems (PostStep)
-            .add_systems(
-                FixedUpdate,
-                release_stale_reservations_stub.in_set(StitchPostStepSet::ReleaseStaleReservations),
-            )
-            .add_systems(
-                FixedUpdate,
-                telemetry_sample_stub.in_set(StitchPostStepSet::TelemetrySample),
+                (
+                    reset_edit_budget.in_set(StitchPreStepSet::ResetEditBudget),
+                    needs_daemon_emit_stub.in_set(StitchPreStepSet::NeedsDaemonEmit),
+                    designation_spawner_stub.in_set(StitchPreStepSet::DesignationSpawner),
+                    task_prune_stub.in_set(StitchPreStepSet::TaskPrune),
+                    path_cache_prepare_stub.in_set(StitchPreStepSet::PathCachePrepare),
+                    hard_need_interrupts_stub.in_set(StitchStepSet::HardNeedInterrupts),
+                    scheduler_assign_stub.in_set(StitchStepSet::SchedulerAssign),
+                    telemetry_sample_stub.in_set(StitchPostStepSet::TelemetrySample),
+                    release_stale_reservations_stub
+                        .in_set(StitchPostStepSet::ReleaseStaleReservations),
+                    job_tick_stub.in_set(StitchStepSet::JobTick),
+                    headless_exit_after_ticks.in_set(KitSystemSet::PostStep),
+                    sync_tile_index::<Pawn>.in_set(KitSystemSet::PostStep),
+                    sync_tile_index::<Item>.in_set(KitSystemSet::PostStep),
+                ),
             )
             // Snapshot save handler (runs in Update for responsiveness)
             .add_systems(Update, handle_snapshot_save_events)
@@ -160,11 +152,6 @@ impl Plugin for StitchlandsCorePlugin {
             .add_systems(
                 OnEnter(simkit_core::AppState::Menu),
                 auto_enter_ingame_if_headless,
-            )
-            // Exit headless after N ticks exactly (post-step to complete the tick)
-            .add_systems(
-                FixedUpdate,
-                headless_exit_after_ticks.in_set(KitSystemSet::PostStep),
             );
     }
 }
@@ -201,15 +188,9 @@ fn headless_exit_after_ticks(
     _budget: Res<EditBudget>,
     _rng: Res<RngResource>,
     _world_tag_q: Query<Entity, With<WorldTag>>,
-    pawn_q: Query<(
-        &crate::scenario::model::Pawn,
-        &crate::scenario::model::Position,
-    )>,
-    item_q: Query<(
-        &crate::scenario::model::Item,
-        &crate::scenario::model::Position,
-    )>,
-    zone_q: Query<&crate::scenario::model::Zone>,
+    pawn_q: Query<(&Pawn, &TileId)>,
+    item_q: Query<(&Item, &TileId)>,
+    zone_q: Query<&Zone>,
     scenario_meta: Option<Res<LoadedScenarioMeta>>,
     mut exit: EventWriter<AppExit>,
 ) {
@@ -233,8 +214,6 @@ fn headless_exit_after_ticks(
     }
 }
 
-pub mod snapshot;
-
 // Event to trigger saving a snapshot to disk (RON format)
 #[derive(Event)]
 pub struct SnapshotSaveEvent {
@@ -245,15 +224,9 @@ fn handle_snapshot_save_events(
     mut evr: EventReader<SnapshotSaveEvent>,
     playback: Res<Playback>,
     scenario_meta: Option<Res<LoadedScenarioMeta>>,
-    pawns_q: Query<(
-        &crate::scenario::model::Pawn,
-        &crate::scenario::model::Position,
-    )>,
-    items_q: Query<(
-        &crate::scenario::model::Item,
-        &crate::scenario::model::Position,
-    )>,
-    zones_q: Query<&crate::scenario::model::Zone>,
+    pawns_q: Query<(&Pawn, &TileId)>,
+    items_q: Query<(&Item, &TileId)>,
+    zones_q: Query<&Zone>,
 ) {
     use std::fs;
     let scenario_seed = scenario_meta.as_ref().and_then(|m| m.sim_seed);

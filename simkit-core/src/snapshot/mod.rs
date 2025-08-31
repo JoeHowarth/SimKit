@@ -24,7 +24,10 @@ mod tests {
     use serde::Serialize;
 
     #[derive(Serialize)]
-    struct Foo { a: u32, b: u32 }
+    struct Foo {
+        a: u32,
+        b: u32,
+    }
 
     #[test]
     fn hash_stable() {
@@ -33,4 +36,3 @@ mod tests {
         assert_eq!(hash(&f1), hash(&f2));
     }
 }
-

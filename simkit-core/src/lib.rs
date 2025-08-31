@@ -5,15 +5,14 @@ use bevy::{platform::collections::HashMap, prelude::*};
 use bevy_asset_loader::loading_state::{LoadingState, LoadingStateAppExt};
 
 pub mod fixed_point;
-pub mod ids;
 pub mod grid;
-pub mod occupancy;
-pub mod pathfinding;
-pub mod snapshot;
+pub mod ids;
 pub mod menu;
+pub mod pathfinding;
 pub mod playback;
 pub mod pod;
 pub mod simulation;
+pub mod snapshot;
 
 pub use menu::MenuPlugin;
 pub use playback::{PlayBackCommand, Playback};

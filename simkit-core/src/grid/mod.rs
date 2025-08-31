@@ -1,3 +1,5 @@
+pub mod index;
+
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -11,10 +13,7 @@ pub struct GridConfig {
 impl GridConfig {
     #[inline]
     pub fn in_bounds(&self, tile: TileId) -> bool {
-        tile.x >= 0
-            && tile.y >= 0
-            && (tile.x as u32) < self.width
-            && (tile.y as u32) < self.height
+        tile.x >= 0 && tile.y >= 0 && (tile.x as u32) < self.width && (tile.y as u32) < self.height
     }
 
     #[inline]
@@ -29,15 +28,7 @@ impl GridConfig {
 
 /// Tile identifier using Bevy-style coordinates (x to the right, y up).
 #[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Hash,
-    Serialize,
-    Deserialize,
-    Reflect,
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect, Component, Default,
 )]
 pub struct TileId {
     pub x: i32,
@@ -48,12 +39,6 @@ impl TileId {
     #[inline]
     pub const fn new(x: i32, y: i32) -> Self {
         Self { x, y }
-    }
-}
-
-impl Default for TileId {
-    fn default() -> Self {
-        Self { x: 0, y: 0 }
     }
 }
 
@@ -90,7 +75,10 @@ mod tests {
 
     #[test]
     fn grid_indexing() {
-        let cfg = GridConfig { width: 4, height: 2 };
+        let cfg = GridConfig {
+            width: 4,
+            height: 2,
+        };
         let g: Grid2D<i32> = Grid2D::new(cfg, 0);
         assert_eq!(cfg.index(TileId::new(0, 0)), Some(0));
         assert_eq!(cfg.index(TileId::new(3, 0)), Some(3));
@@ -99,4 +87,3 @@ mod tests {
         assert_eq!(g.get(TileId::new(2, 1)), Some(&0));
     }
 }
-

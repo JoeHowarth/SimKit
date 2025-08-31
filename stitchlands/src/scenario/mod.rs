@@ -2,9 +2,11 @@ mod cleanup;
 mod loader;
 pub mod model;
 
-use crate::scenario::model::{Item, Pawn, Zone};
+use crate::components::{Item, Pawn, Zone};
+use crate::ids::{ItemId, PawnId, ZoneId};
+use crate::{CliOptions, RunMode};
 use bevy::prelude::*;
-use simkit_core::ids::{IdAllocator, IdIndex, ItemId, PawnId, ZoneId};
+use simkit_core::ids::{IdAllocator, IdIndex};
 use simkit_core::AppState;
 
 pub use loader::LoadedScenarioMeta;
@@ -23,8 +25,6 @@ impl Plugin for ScenarioPlugin {
             .init_resource::<IdIndex<ZoneId>>()
             // Load scenario and world on enter (live mode)
             .add_systems(OnEnter(AppState::InGame), loader::load_scenario)
-            // In headless mode (no states), ensure loading occurs at Startup
-            .add_systems(Startup, loader::load_scenario_if_headless)
             // Cleanup on exit
             .add_systems(OnExit(AppState::InGame), cleanup::cleanup_world)
             // Maintain IdIndex on add/remove
@@ -40,22 +40,28 @@ impl Plugin for ScenarioPlugin {
                     index_on_remove_zone,
                 ),
             );
+        // In headless mode (no states), ensure loading occurs at Startup
+        if let Some(cli) = app.world().get_resource::<CliOptions>()
+            && cli.mode == RunMode::Headless
+        {
+            app.add_systems(Startup, loader::load_scenario);
+        }
     }
 }
 
 fn index_on_add_pawn(mut idx: ResMut<IdIndex<PawnId>>, q: Query<(Entity, &Pawn), Added<Pawn>>) {
-    for (_e, p) in &q {
-        idx.insert(p.0, _e);
+    for (e, p) in &q {
+        idx.insert(p.id, e);
     }
 }
 fn index_on_add_item(mut idx: ResMut<IdIndex<ItemId>>, q: Query<(Entity, &Item), Added<Item>>) {
-    for (_e, it) in &q {
-        idx.insert(it.id, _e);
+    for (e, it) in &q {
+        idx.insert(it.id, e);
     }
 }
 fn index_on_add_zone(mut idx: ResMut<IdIndex<ZoneId>>, q: Query<(Entity, &Zone), Added<Zone>>) {
-    for (_e, z) in &q {
-        idx.insert(z.id, _e);
+    for (e, z) in &q {
+        idx.insert(z.id, e);
     }
 }
 
