@@ -9,7 +9,7 @@ fn stitchlands_bin() -> String {
 fn headless_exits_after_n_ticks() {
     let exe = stitchlands_bin();
     let output = Command::new(exe)
-        .args(["--mode", "headless", "--ticks", "5", "--seed", "1"]) 
+        .args(["--mode", "headless", "--ticks", "5", "--seed", "1"])
         .output()
         .expect("run stitchlands");
     assert!(output.status.success(), "process should exit 0");
@@ -20,7 +20,14 @@ fn determinism_empty_world_snapshot_hash() {
     let exe = stitchlands_bin();
     let run = |seed: u64| {
         let output = Command::new(&exe)
-            .args(["--mode", "headless", "--ticks", "5", "--seed", &seed.to_string()])
+            .args([
+                "--mode",
+                "headless",
+                "--ticks",
+                "5",
+                "--seed",
+                &seed.to_string(),
+            ])
             .output()
             .expect("run stitchlands");
         assert!(output.status.success(), "process should exit 0");
@@ -36,4 +43,3 @@ fn determinism_empty_world_snapshot_hash() {
     let h2 = run(1);
     assert_eq!(h1, h2, "hashes should match");
 }
-

@@ -35,6 +35,9 @@ Tests (integration)
 - Headless: run with fixed seed and N ticks; process exits 0 after exactly N FixedUpdate iterations.
 - Determinism: two identical runs produce identical baseline snapshot hashes (empty world snapshot).
 
+Status
+- Completed. Implemented StitchlandsCore scaffolding, CLI with headless mode and tick limit, minimal FNV‑1a snapshot hash on exit, and passing integration tests for tick exit and determinism. simkit-core consolidated to KitCoreBase used by live and headless.
+
 ## 0.b Scenario Load + Cleanup
 Goals
 - Deterministic world boot and complete teardown on state exit.
@@ -42,7 +45,7 @@ Goals
 Deliverables
 - RON structs in `stitchlands/src/scenario/model.rs`:
   - `Scenario { sim_seed: Option<u64>, map: MapDef, pawns: Vec<PawnDef>, items: Vec<ItemDef>, zones: Vec<ZoneDef>, designations: Vec<DesignationDef>, defaults: DefaultsDef }`.
-  - `MapDef { size: UVec2, tiles: Vec<TileDef> }` with explicit overrides (sparse list) and default terrain.
+  - `MapDef { size: UVec2, tiles: Vec<TileDef> }` with explicit overrides (sparse list) and default terrain. Note: `size` is a concrete struct in RON (no `Some(...)` wrapper needed).
   - `TileDef { pos: TileId, terrain: Terrain, walkable: bool }`.
   - `PawnDef { id: Option<u64>, name: Option<String>, pos: TileId, needs: NeedsDef, priorities: HashMap<WorkType, i32> }`.
   - `ItemDef { id: Option<u64>, kind: ItemKind, qty: u32, pos: TileId }`.
@@ -51,6 +54,8 @@ Deliverables
 - Loader in `stitchlands/src/scenario/loader.rs`:
   - `OnEnter(AppState::InGame)`: spawn map, pawns, items, zones; attach `WorldTag`; assign typed IDs using `IdAllocator<T>` for any missing IDs; populate `IdIndex<T>`.
   - Seed RNG: `sim_seed.or(cli_seed).unwrap_or(1)`.
+- Typed IDs moved up to simkit-core in 0.b (earlier than planned in 0.c): `simkit-core::ids::{PawnId, ItemId, ZoneId, BlueprintId, BedId, TaskId}` along with `IdAllocator<T>` and `IdIndex<T>` resources. Stitchlands uses these during scenario load and cleans them on exit.
+- ID policy: auto-assigned IDs start at 1000 to avoid clashes with authored IDs. After load, allocators are bumped beyond the maximum present ID.
 - Cleanup in `stitchlands/src/scenario/cleanup.rs`:
   - `OnExit(AppState::InGame)`: despawn all entities with `WorldTag` (recursive), clear/zero:
     - `TaskBoard`, `ReservationMaps`, `IdIndex<T>` for all ID types, `IdAllocator<T>` (reset to post-max or 0 per policy), `Grid2D`, `Occupancy`, `RngResource`, `EditBudget`, `PathCache`, `Telemetry` accumulators.
@@ -66,13 +71,16 @@ Deliverables (simkit-core)
 - `src/grid/mod.rs`: `Grid2D<T>`, `GridConfig`, index/coord conversion; `TileId { x, y }` newtype.
 - `src/occupancy/mod.rs`: bitflags `Occupancy { PAWN, ITEM, BUILDING }`, component `EntityTileLink { tile: TileId }`, helpers `occupy(tile, flags)`, `vacate(tile, flags)`.
 - `src/pathfinding/astar.rs`: deterministic 8-way A*; octile heuristic; costs 10/14; tie-breakers `(f, h, tile_id)`.
-- `src/ids/mod.rs`: typed IDs; `IdAllocator<T>`, `IdIndex<T>`.
+- `src/ids/mod.rs`: typed IDs; `IdAllocator<T>`, `IdIndex<T>`. (Implemented in 0.b)
 - `src/snapshot/mod.rs`: helpers for canonical extraction (sorting and serialization utils).
 - Optional `src/tilemap_render/*.rs` (live mode only) to build `bevy_ecs_tilemap` layers.
 
 Integration (stitchlands)
 - `world` glue uses simkit `Grid2D` and `TileId`; `Position` uses `TileId`.
 - Enforce Bevy-style coords; forbid mutation of sim state from Update.
+- Scenario completion fills missing fields deterministically:
+  - Missing pawn/item positions: random tile within bounds with uniqueness (best effort, capped retries).
+  - Missing zone rect: normalized 1x1 at a deterministic tile; all rects normalized (min/max) and clamped to map bounds.
 
 Tests
 - Unit (simkit): A* determinism on fixed maps; occupancy/vacate invariants and idempotence.
@@ -124,9 +132,9 @@ Tests (integration)
 
 ## Cross-Cutting: Snapshot Extraction and Golden Hashes
 Extractor
-- Collect: pawns (id, pos, needs, job refs), tasks (id, kind, status, owner), inventory counts/reservations, tile occupancy, map size and relevant tile properties, and minimal world config.
-- Sort: by typed IDs or by coordinates; never depend on Entity.
-- Serialize: canonical JSON (or RON with enforced key order), compute FNV‑1a 64‑bit.
+- Collect: pawns (id, pos), items (id, pos, kind, qty), zones (id, rect). Extend later with tasks/telemetry.
+- Sort: by typed IDs; never depend on Entity.
+- Serialize: canonical JSON, compute FNV‑1a 64‑bit.
 
 Golden Storage
 - For each scenario, store a companion `*.meta.ron` with the expected hash and brief notes.

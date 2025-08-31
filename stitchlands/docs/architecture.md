@@ -44,6 +44,7 @@ Typed ID specifics
 - Per-type allocator: `struct IdAllocator<T> { next: u64 }` with deterministic monotonic assignment (no reuse).
 - Per-type index: `struct IdIndex<T>(HashMap<Id<T>, Entity>)` kept in sync on spawn/despawn.
 - Components: entities carry exactly one typed ID that matches their domain (e.g., `PawnId` on pawns).
+ - Policy: allocator defaults start at 1000 to avoid clashing with authored IDs in scenarios. Completion of scenarios also assigns missing IDs from 1000 upward.
 
 ## Coordinates, Grid, and Pathfinding (in simkit)
 - Coordinates: Bevy-style origin with (0,0) at bottom-left; +X right, +Y up.
@@ -119,7 +120,7 @@ Metric definitions (initial)
 - `backlog_by_type`: counts of `TaskStatus::Pending` by `TaskKind`/`WorkType`.
 
 ## Scenarios (RON) and CLI
-- Scenario model: dynamic map size; explicit tiles/entities/zones/inventories/priorities; optional seeds; auto-ID assignment allowed.
+- Scenario model: dynamic map size; explicit tiles/entities/zones/inventories/priorities; optional seeds; auto-ID assignment allowed. On disk the type name is `Scenario` (serde-renamed), which maps to the editable `ScenarioDef` in code.
 - Loader: `OnEnter(InGame)` spawns world and indexes; `OnExit(InGame)` fully despawns tagged runtime entities and clears resources.
 - CLI:
   - Flags: `--mode {live|headless}` (default: live), `--scenario <path.ron>`, `--ticks <N>` (required for headless), `--seed <u64>` (default 1).

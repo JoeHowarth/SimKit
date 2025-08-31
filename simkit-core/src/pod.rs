@@ -40,7 +40,6 @@ impl<
 {
 }
 
-
 // add derives to a struct or enum definnition
 // used like:
 // pod!{

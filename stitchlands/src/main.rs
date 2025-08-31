@@ -1,12 +1,12 @@
-use bevy::prelude::*;
-use bevy::window::WindowPlugin;
 use bevy::core_pipeline::CorePipelinePlugin;
+use bevy::pbr::PbrPlugin;
+use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy::sprite::SpritePlugin;
 use bevy::text::TextPlugin;
 use bevy::ui::UiPlugin;
+use bevy::window::WindowPlugin;
 use bevy::winit::WinitPlugin;
-use bevy::pbr::PbrPlugin;
 use simkit_core::{KitCoreHeadlessPlugin, KitCorePlugin};
 
 use crate::cli::parse_cli;
@@ -52,9 +52,9 @@ fn main() {
         // Seed RNG directly in headless since state OnEnter hooks are not used
         use rand::SeedableRng;
         app.insert_resource::<CliOptions>(cli.clone());
-        app.insert_resource(stitchlands::RngResource(rand::rngs::SmallRng::seed_from_u64(
-            cli.seed,
-        )));
+        app.insert_resource(stitchlands::RngResource(
+            rand::rngs::SmallRng::seed_from_u64(cli.seed),
+        ));
     }
 
     app.run();

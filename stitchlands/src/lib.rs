@@ -1,8 +1,11 @@
 use bevy::prelude::*;
 use rand::{rngs::SmallRng, SeedableRng};
 
+use crate::snapshot::{build_world_snapshot, stable_hash_json};
 use simkit_core::{AppState, KitSystemSet, Playback};
-use crate::snapshot::{extract_snapshot_v0, stable_hash_json};
+
+pub mod scenario;
+use crate::scenario::LoadedScenarioMeta;
 
 // Resources and markers
 #[derive(Resource, Debug, Clone, Copy)]
@@ -78,6 +81,7 @@ impl Plugin for StitchlandsCorePlugin {
         // Resources
         app.init_resource::<EditBudget>()
             .init_resource::<RngResource>()
+            .add_plugins(crate::scenario::ScenarioPlugin)
             // Chain our sub-sets inside KitSystemSet phases
             .configure_sets(
                 FixedUpdate,
@@ -136,27 +140,21 @@ impl Plugin for StitchlandsCorePlugin {
                 FixedUpdate,
                 scheduler_assign_stub.in_set(StitchStepSet::SchedulerAssign),
             )
-            .add_systems(
-                FixedUpdate,
-                job_tick_stub.in_set(StitchStepSet::JobTick),
-            )
+            .add_systems(FixedUpdate, job_tick_stub.in_set(StitchStepSet::JobTick))
             // Systems (PostStep)
             .add_systems(
                 FixedUpdate,
-                release_stale_reservations_stub
-                    .in_set(StitchPostStepSet::ReleaseStaleReservations),
+                release_stale_reservations_stub.in_set(StitchPostStepSet::ReleaseStaleReservations),
             )
             .add_systems(
                 FixedUpdate,
                 telemetry_sample_stub.in_set(StitchPostStepSet::TelemetrySample),
             )
-            // Seed RNG at game start from CLI seed
-            .add_systems(
-                OnEnter(AppState::InGame),
-                seed_rng_from_cli,
-            )
             // Auto-enter InGame when running headless
-            .add_systems(OnEnter(simkit_core::AppState::Menu), auto_enter_ingame_if_headless)
+            .add_systems(
+                OnEnter(simkit_core::AppState::Menu),
+                auto_enter_ingame_if_headless,
+            )
             // Exit headless after N ticks exactly (post-step to complete the tick)
             .add_systems(
                 FixedUpdate,
@@ -181,11 +179,6 @@ fn job_tick_stub() {}
 fn release_stale_reservations_stub() {}
 fn telemetry_sample_stub() {}
 
-fn seed_rng_from_cli(mut rng: ResMut<RngResource>, cli: Option<Res<CliOptions>>) {
-    let seed = cli.as_deref().map(|c| c.seed).unwrap_or(1);
-    rng.0 = SmallRng::seed_from_u64(seed);
-}
-
 fn auto_enter_ingame_if_headless(
     cli: Option<Res<CliOptions>>,
     mut next_state: ResMut<NextState<AppState>>,
@@ -201,6 +194,17 @@ fn headless_exit_after_ticks(
     playback: Res<Playback>,
     budget: Res<EditBudget>,
     rng: Res<RngResource>,
+    world_tag_q: Query<Entity, With<WorldTag>>,
+    pawn_q: Query<(
+        &crate::scenario::model::Pawn,
+        &crate::scenario::model::Position,
+    )>,
+    item_q: Query<(
+        &crate::scenario::model::Item,
+        &crate::scenario::model::Position,
+    )>,
+    zone_q: Query<&crate::scenario::model::Zone>,
+    scenario_meta: Option<Res<LoadedScenarioMeta>>,
     mut exit: EventWriter<AppExit>,
 ) {
     let Some(cli) = cli else { return };
@@ -209,9 +213,14 @@ fn headless_exit_after_ticks(
     }
     if let Some(limit) = cli.ticks {
         if (playback.tick.0 as u64) >= limit {
-            // Extract a minimal baseline snapshot and print a stable hash for determinism testing
-            let snap = extract_snapshot_v0(&playback, &rng, &budget);
-            let hash = stable_hash_json(&snap);
+            // Extract a baseline snapshot and print a stable hash for determinism testing
+            let scenario_seed = scenario_meta.as_ref().and_then(|m| m.sim_seed);
+            let pawns_vec: Vec<_> = pawn_q.iter().map(|(p, pos)| (*p, *pos)).collect();
+            let items_vec: Vec<_> = item_q.iter().map(|(it, pos)| (it.clone(), *pos)).collect();
+            let zones_vec: Vec<_> = zone_q.iter().cloned().collect();
+            let world_snap =
+                build_world_snapshot(&playback, scenario_seed, &pawns_vec, &items_vec, &zones_vec);
+            let hash = stable_hash_json(&world_snap);
             println!("SNAP:{}", hash);
             exit.write(AppExit::Success);
         }

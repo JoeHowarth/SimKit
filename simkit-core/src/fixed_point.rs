@@ -261,20 +261,20 @@ impl TryFrom<u64> for Q40p24 {
 impl From<Q40p24> for u64 {
     #[inline]
     fn from(v: Q40p24) -> u64 {
-        v.trunc().max(0) as u64
+        v.round().max(0) as u64
     }
 }
 
 impl From<Q40p24> for i64 {
     #[inline]
     fn from(v: Q40p24) -> i64 {
-        v.trunc()
+        v.round()
     }
 }
 impl From<Q40p24> for i32 {
     #[inline]
     fn from(v: Q40p24) -> i32 {
-        v.trunc() as i32
+        v.round() as i32
     }
 }
 

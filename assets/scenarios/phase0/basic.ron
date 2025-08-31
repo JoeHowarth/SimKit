@@ -1,0 +1,27 @@
+Scenario(
+  sim_seed: Some(42),
+  map: (
+    size: (x: 8, y: 8),
+    tiles: [],
+  ),
+  pawns: [
+    (
+      id: Some(1),
+      name: Some("Ada"),
+      pos: Some((x: 2, y: 3)),
+      needs: (hunger: 0.6, rest: 0.9),
+      priorities: {},
+    ),
+    (
+      id: None,
+      name: Some("Ben"),
+      pos: Some((x: 4, y: 1)),
+      needs: (hunger: 0.7, rest: 0.8),
+      priorities: {},
+    ),
+  ],
+  items: [],
+  zones: [],
+  designations: [],
+  defaults: None,
+)

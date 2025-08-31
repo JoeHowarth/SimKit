@@ -15,7 +15,7 @@ pub struct CliArgs {
     pub scenario: Option<PathBuf>,
 
     /// Number of FixedUpdate ticks to run (required in headless)
-    #[arg(long, required_if_eq("mode", "headless") )]
+    #[arg(long, required_if_eq("mode", "headless"))]
     pub ticks: Option<u64>,
 
     /// RNG seed (default: 1)

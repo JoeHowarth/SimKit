@@ -9,6 +9,7 @@ use bevy_asset_loader::loading_state::{LoadingState, LoadingStateAppExt};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 pub mod fixed_point;
+pub mod ids;
 pub mod menu;
 pub mod playback;
 pub mod pod;
@@ -64,13 +65,18 @@ pub struct KitCoreBase {
 
 impl Default for KitCoreBase {
     fn default() -> Self {
-        Self { use_states: true, with_menu: true }
+        Self {
+            use_states: true,
+            with_menu: true,
+        }
     }
 }
 
 impl Plugin for KitCoreBase {
     fn build(&self, app: &mut App) {
-        if self.with_menu { app.add_plugins(MenuPlugin); }
+        if self.with_menu {
+            app.add_plugins(MenuPlugin);
+        }
 
         app.register_type::<Tick>()
             .register_type::<GameId>()
@@ -83,8 +89,13 @@ impl Plugin for KitCoreBase {
 
         if self.use_states {
             app.insert_state(AppState::AssetLoading)
-                .add_loading_state(LoadingState::new(AppState::AssetLoading).continue_to_state(AppState::Menu))
-                .add_systems(OnEnter(AppState::InGame), (playback::setup_playback_resource,));
+                .add_loading_state(
+                    LoadingState::new(AppState::AssetLoading).continue_to_state(AppState::Menu),
+                )
+                .add_systems(
+                    OnEnter(AppState::InGame),
+                    (playback::setup_playback_resource,),
+                );
         } else {
             app.add_systems(Startup, playback::setup_playback_resource);
         }
@@ -94,33 +105,50 @@ impl Plugin for KitCoreBase {
             KitSystemSet::PreStep,
             KitSystemSet::Step,
             KitSystemSet::PostStep,
-        ).chain().run_if(Playback::should_step);
-        if self.use_states { fixed = fixed.run_if(in_state(AppState::InGame)); }
+        )
+            .chain()
+            .run_if(Playback::should_step);
+        if self.use_states {
+            fixed = fixed.run_if(in_state(AppState::InGame));
+        }
         app.configure_sets(FixedUpdate, fixed);
 
         let mut update = (KitSystemSet::HandleCommands, KitSystemSet::PerFrame).chain();
-        if self.use_states { update = update.run_if(in_state(AppState::InGame)); }
+        if self.use_states {
+            update = update.run_if(in_state(AppState::InGame));
+        }
         app.configure_sets(Update, update);
 
         if self.use_states {
-            app.add_systems(Update, playback::ensure_playback_resource.run_if(in_state(AppState::InGame)));
+            app.add_systems(
+                Update,
+                playback::ensure_playback_resource.run_if(in_state(AppState::InGame)),
+            );
         } else {
             app.add_systems(Update, playback::ensure_playback_resource);
         }
 
-        app.add_systems(FixedUpdate, (Playback::inc_tick.in_set(KitSystemSet::Tick),));
+        app.add_systems(
+            FixedUpdate,
+            (Playback::inc_tick.in_set(KitSystemSet::Tick),),
+        );
     }
 }
 
 pub struct KitCorePlugin;
 impl Plugin for KitCorePlugin {
-    fn build(&self, app: &mut App) { app.add_plugins(KitCoreBase::default()); }
+    fn build(&self, app: &mut App) {
+        app.add_plugins(KitCoreBase::default());
+    }
 }
 
 pub struct KitCoreHeadlessPlugin;
 impl Plugin for KitCoreHeadlessPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(KitCoreBase { use_states: false, with_menu: false });
+        app.add_plugins(KitCoreBase {
+            use_states: false,
+            with_menu: false,
+        });
     }
 }
 
