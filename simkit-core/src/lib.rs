@@ -1,9 +1,7 @@
+#![allow(clippy::type_complexity)]
 use std::{fmt::Debug, hash::Hash};
 
-use bevy::{
-    platform::collections::HashMap,
-    prelude::*,
-};
+use bevy::{platform::collections::HashMap, prelude::*};
 use bevy_asset_loader::loading_state::{LoadingState, LoadingStateAppExt};
 
 pub mod fixed_point;

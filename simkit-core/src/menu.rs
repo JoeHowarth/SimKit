@@ -140,7 +140,10 @@ fn global_exit_handler(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut app_exit_events: EventWriter<AppExit>,
 ) {
-    if (keyboard_input.pressed(KeyCode::ControlLeft) || keyboard_input.pressed(KeyCode::ControlRight)) && keyboard_input.just_pressed(KeyCode::KeyC) {
+    if (keyboard_input.pressed(KeyCode::ControlLeft)
+        || keyboard_input.pressed(KeyCode::ControlRight))
+        && keyboard_input.just_pressed(KeyCode::KeyC)
+    {
         app_exit_events.write(AppExit::Success);
     }
 }

@@ -20,13 +20,13 @@ fn fnv1a64_hex(bytes: &[u8]) -> String {
     format!("{hash:016x}")
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct PawnEntry {
     pub id: u64,
     pub x: i32,
     pub y: i32,
 }
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct ItemEntry {
     pub id: u64,
     pub kind: String,
@@ -34,14 +34,14 @@ pub struct ItemEntry {
     pub x: i32,
     pub y: i32,
 }
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct ZoneEntry {
     pub id: u64,
     pub kind: String,
     pub rect: ((i32, i32), (i32, i32)),
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct WorldSnapshot {
     pub tick: i32,
     pub scenario_seed: Option<u64>,
@@ -160,5 +160,109 @@ pub fn load_world_snapshot(
             ))
             .id();
         zone_index.insert(typed, entity);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::prelude::*;
+    use simkit_core::{
+        ids::{IdIndex, ItemId, PawnId, ZoneId},
+        Playback,
+    };
+
+    #[derive(Resource)]
+    struct TestSnap(WorldSnapshot);
+
+    fn sys_load_from_snap(
+        mut commands: Commands,
+        mut pawn_idx: ResMut<IdIndex<PawnId>>,
+        mut item_idx: ResMut<IdIndex<ItemId>>,
+        mut zone_idx: ResMut<IdIndex<ZoneId>>,
+        snap: Res<TestSnap>,
+    ) {
+        load_world_snapshot(
+            &mut commands,
+            &mut pawn_idx,
+            &mut item_idx,
+            &mut zone_idx,
+            &snap.0,
+        );
+    }
+
+    #[test]
+    fn world_snapshot_round_trip() {
+        let snap = WorldSnapshot {
+            tick: 7,
+            scenario_seed: Some(42),
+            pawns: vec![
+                PawnEntry { id: 1, x: 2, y: 3 },
+                PawnEntry {
+                    id: 1000,
+                    x: 4,
+                    y: 5,
+                },
+            ],
+            items: vec![ItemEntry {
+                id: 2000,
+                kind: "Grain".into(),
+                qty: 5,
+                x: 1,
+                y: 1,
+            }],
+            zones: vec![ZoneEntry {
+                id: 3000,
+                kind: "Stockpile".into(),
+                rect: ((0, 0), (2, 2)),
+            }],
+        };
+
+        let mut app = App::new();
+        app.init_resource::<IdIndex<PawnId>>()
+            .init_resource::<IdIndex<ItemId>>()
+            .init_resource::<IdIndex<ZoneId>>()
+            .insert_resource(TestSnap(snap.clone()))
+            .insert_resource(Playback {
+                tick: simkit_core::Tick(snap.tick),
+                ..Default::default()
+            })
+            .add_systems(Startup, sys_load_from_snap);
+
+        app.update();
+
+        // Re-extract
+        let world = app.world_mut();
+        let mut pawn_q = world.query::<(
+            &crate::scenario::model::Pawn,
+            &crate::scenario::model::Position,
+        )>();
+        let mut item_q = world.query::<(
+            &crate::scenario::model::Item,
+            &crate::scenario::model::Position,
+        )>();
+        let mut zone_q = world.query::<&crate::scenario::model::Zone>();
+
+        let pawns_vec: Vec<_> = pawn_q.iter(world).map(|(p, pos)| (*p, *pos)).collect();
+        let items_vec: Vec<_> = item_q
+            .iter(world)
+            .map(|(it, pos)| (it.clone(), *pos))
+            .collect();
+        let zones_vec: Vec<_> = zone_q.iter(world).cloned().collect();
+
+        let playback = world.resource::<Playback>().clone();
+        let new_snap = build_world_snapshot(
+            &playback,
+            snap.scenario_seed,
+            &pawns_vec,
+            &items_vec,
+            &zones_vec,
+        );
+
+        assert_eq!(snap.tick, new_snap.tick);
+        assert_eq!(snap.scenario_seed, new_snap.scenario_seed);
+        assert_eq!(snap.pawns, new_snap.pawns);
+        assert_eq!(snap.items, new_snap.items);
+        assert_eq!(snap.zones, new_snap.zones);
     }
 }

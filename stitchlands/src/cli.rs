@@ -14,6 +14,10 @@ pub struct CliArgs {
     #[arg(long)]
     pub scenario: Option<PathBuf>,
 
+    /// Load world from snapshot (.ron) instead of scenario
+    #[arg(long)]
+    pub snapshot: Option<PathBuf>,
+
     /// Number of FixedUpdate ticks to run (required in headless)
     #[arg(long, required_if_eq("mode", "headless"))]
     pub ticks: Option<u64>,
@@ -43,6 +47,7 @@ pub fn parse_cli() -> CliOptions {
     CliOptions {
         mode: args.mode.into(),
         scenario: args.scenario,
+        snapshot: args.snapshot,
         ticks: args.ticks,
         seed: args.seed,
     }

@@ -66,6 +66,7 @@ pub enum StitchPostStepSet {
 pub struct CliOptions {
     pub mode: RunMode,
     pub scenario: Option<std::path::PathBuf>,
+    pub snapshot: Option<std::path::PathBuf>,
     pub ticks: Option<u64>,
     pub seed: u64,
 }
@@ -84,6 +85,7 @@ impl Plugin for StitchlandsCorePlugin {
         app.init_resource::<EditBudget>()
             .init_resource::<RngResource>()
             .add_plugins(crate::scenario::ScenarioPlugin)
+            .add_event::<SnapshotSaveEvent>()
             // Chain our sub-sets inside KitSystemSet phases
             .configure_sets(
                 FixedUpdate,
@@ -152,6 +154,8 @@ impl Plugin for StitchlandsCorePlugin {
                 FixedUpdate,
                 telemetry_sample_stub.in_set(StitchPostStepSet::TelemetrySample),
             )
+            // Snapshot save handler (runs in Update for responsiveness)
+            .add_systems(Update, handle_snapshot_save_events)
             // Auto-enter InGame when running headless
             .add_systems(
                 OnEnter(simkit_core::AppState::Menu),
@@ -230,3 +234,39 @@ fn headless_exit_after_ticks(
 }
 
 pub mod snapshot;
+
+// Event to trigger saving a snapshot to disk (RON format)
+#[derive(Event)]
+pub struct SnapshotSaveEvent {
+    pub path: std::path::PathBuf,
+}
+
+fn handle_snapshot_save_events(
+    mut evr: EventReader<SnapshotSaveEvent>,
+    playback: Res<Playback>,
+    scenario_meta: Option<Res<LoadedScenarioMeta>>,
+    pawns_q: Query<(
+        &crate::scenario::model::Pawn,
+        &crate::scenario::model::Position,
+    )>,
+    items_q: Query<(
+        &crate::scenario::model::Item,
+        &crate::scenario::model::Position,
+    )>,
+    zones_q: Query<&crate::scenario::model::Zone>,
+) {
+    use std::fs;
+    let scenario_seed = scenario_meta.as_ref().and_then(|m| m.sim_seed);
+    for ev in evr.read() {
+        let pawns_vec: Vec<_> = pawns_q.iter().map(|(p, pos)| (*p, *pos)).collect();
+        let items_vec: Vec<_> = items_q.iter().map(|(it, pos)| (it.clone(), *pos)).collect();
+        let zones_vec: Vec<_> = zones_q.iter().cloned().collect();
+        let snap =
+            build_world_snapshot(&playback, scenario_seed, &pawns_vec, &items_vec, &zones_vec);
+        let pretty = ron::ser::to_string_pretty(&snap, ron::ser::PrettyConfig::default())
+            .expect("serialize snapshot to RON");
+        if let Err(e) = fs::write(&ev.path, pretty) {
+            eprintln!("Failed to write snapshot to {:?}: {}", ev.path, e);
+        }
+    }
+}
