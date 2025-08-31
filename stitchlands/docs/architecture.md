@@ -38,6 +38,7 @@ System labels (proposed)
   - Extract relevant components/resources into canonical containers.
   - Sort by typed IDs (or coordinates for tiles), serialize in a canonical form, and hash (SHA‑256).
   - Paired with golden hashes stored next to scenarios for deterministic integration tests and future save/load.
+  - Round-trip support: the same serializable snapshot struct is used for extraction and for loading back into a world.
 
 Typed ID specifics
 - Newtypes (examples): `struct PawnId(pub u64); struct TaskId(pub u64); struct ItemId(pub u64); struct BlueprintId(pub u64); struct ZoneId(pub u64); struct BedId(pub u64);`
@@ -120,7 +121,7 @@ Metric definitions (initial)
 - `backlog_by_type`: counts of `TaskStatus::Pending` by `TaskKind`/`WorkType`.
 
 ## Scenarios (RON) and CLI
-- Scenario model: dynamic map size; explicit tiles/entities/zones/inventories/priorities; optional seeds; auto-ID assignment allowed. On disk the type name is `Scenario` (serde-renamed), which maps to the editable `ScenarioDef` in code.
+- Scenario model: dynamic map size; explicit tiles/entities/zones/inventories/priorities; optional seeds; auto-ID assignment allowed. On disk the type name is `Scenario` (serde-renamed), which maps to the editable `ScenarioDef` in code; completion of defaults happens at load/spawn time (no separate completed struct).
 - Loader: `OnEnter(InGame)` spawns world and indexes; `OnExit(InGame)` fully despawns tagged runtime entities and clears resources.
 - CLI:
   - Flags: `--mode {live|headless}` (default: live), `--scenario <path.ron>`, `--ticks <N>` (required for headless), `--seed <u64>` (default 1).

@@ -1,14 +1,11 @@
 use std::fs;
 
 use bevy::prelude::*;
-use rand::{rngs::SmallRng, SeedableRng};
+use rand::{rngs::SmallRng, Rng, SeedableRng};
 
 use crate::{CliOptions, RngResource};
 
-use super::model::{
-    complete_scenario, ItemComplete, PawnComplete, ScenarioDef,
-    ZoneComplete,
-};
+use super::model::{Item, Pawn, Position, ScenarioDef, TilePos, Zone};
 use simkit_core::ids::{IdAllocator, IdIndex, ItemId, PawnId, ZoneId};
 
 #[derive(Resource, Default, Debug, Clone, Copy)]
@@ -49,42 +46,154 @@ pub fn load_scenario(
         }
     };
 
-    // Complete the scenario deterministically before spawning "real" components
+    // Seed RNG for sim runtime using scenario or CLI
     let fallback_seed = cli.as_deref().map(|c| c.seed).unwrap_or(1);
-    let complete = complete_scenario(&scenario_def, fallback_seed);
-
-    // Seed RNG for sim runtime
-    rng.0 = SmallRng::seed_from_u64(complete.sim_seed);
+    let sim_seed = scenario_def.sim_seed.unwrap_or(fallback_seed);
+    rng.0 = SmallRng::seed_from_u64(sim_seed);
     commands.insert_resource(LoadedScenarioMeta {
-        sim_seed: Some(complete.sim_seed),
+        sim_seed: Some(sim_seed),
     });
 
-    // Ensure allocators do not reuse provided IDs by bumping next past the max used
-    if let Some(max) = complete.pawns.iter().map(|p| p.pawn.0 .0).max() {
+    // Helpers
+    let map_size = scenario_def.map.size;
+    let mut next_rand_pos = || TilePos {
+        x: rng.0.gen_range(0..map_size.x as i32),
+        y: rng.0.gen_range(0..map_size.y as i32),
+    };
+    let clamp = |mut p: TilePos| -> TilePos {
+        if p.x < 0 {
+            p.x = 0
+        };
+        if p.y < 0 {
+            p.y = 0
+        };
+        if p.x >= map_size.x as i32 {
+            p.x = map_size.x as i32 - 1
+        };
+        if p.y >= map_size.y as i32 {
+            p.y = map_size.y as i32 - 1
+        };
+        p
+    };
+    let norm_rect = |a: TilePos, b: TilePos| -> (TilePos, TilePos) {
+        let a = clamp(a);
+        let b = clamp(b);
+        let minx = a.x.min(b.x);
+        let miny = a.y.min(b.y);
+        let maxx = a.x.max(b.x);
+        let maxy = a.y.max(b.y);
+        (TilePos { x: minx, y: miny }, TilePos { x: maxx, y: maxy })
+    };
+
+    use std::collections::HashSet;
+    let mut used_pawn_positions: HashSet<(i32, i32)> = HashSet::new();
+    let mut used_item_positions: HashSet<(i32, i32)> = HashSet::new();
+    let mut unique_pos = |
+        used: &mut HashSet<(i32, i32)>,
+        mut pos: TilePos,
+        gen: &mut dyn FnMut() -> TilePos,
+    | {
+        let mut tries = 0;
+        let max_tries = 1000;
+        while used.contains(&(pos.x, pos.y)) && tries < max_tries {
+            pos = gen();
+            tries += 1;
+        }
+        used.insert((pos.x, pos.y));
+        pos
+    };
+
+    // Track maxima of provided IDs to bump allocators after spawning provided ones
+    let max_pawn_provided = scenario_def
+        .pawns
+        .iter()
+        .filter_map(|p| p.id)
+        .max();
+    let max_item_provided = scenario_def.items.iter().filter_map(|i| i.id).max();
+    let max_zone_provided = scenario_def.zones.iter().filter_map(|z| z.id).max();
+
+    // Spawn pawns
+    for (i, p) in scenario_def.pawns.iter().enumerate() {
+        let typed = pawn_alloc.assign(p.id.map(PawnId));
+        let name = p
+            .name
+            .clone()
+            .unwrap_or_else(|| format!("Pawn{}", i + 1));
+        let pos = Position(match p.pos {
+            Some(pos) => unique_pos(&mut used_pawn_positions, pos, &mut next_rand_pos),
+            None => unique_pos(&mut used_pawn_positions, next_rand_pos(), &mut next_rand_pos),
+        });
+        let entity = commands
+            .spawn((crate::WorldTag, Name::new(name), Pawn(typed), pos))
+            .id();
+        pawn_index.insert(typed, entity);
+        // p.needs and p.priorities retained for future use
+    }
+
+    // Ensure pawn allocator does not reuse provided IDs
+    if let Some(max) = max_pawn_provided {
         if pawn_alloc.next <= max {
             pawn_alloc.reset(max + 1);
         }
     }
-    if let Some(max) = complete.items.iter().map(|i| i.item.id.0).max() {
+
+    // Spawn items
+    for it in scenario_def.items.iter() {
+        let typed = item_alloc.assign(it.id.map(ItemId));
+        let pos = Position(match it.pos {
+            Some(pos) => unique_pos(&mut used_item_positions, pos, &mut next_rand_pos),
+            None => unique_pos(&mut used_item_positions, next_rand_pos(), &mut next_rand_pos),
+        });
+        let entity = commands
+            .spawn((
+                crate::WorldTag,
+                Name::new(format!("Item#{}", typed.0)),
+                Item {
+                    id: typed,
+                    kind: it.kind.clone(),
+                    qty: it.qty,
+                },
+                pos,
+            ))
+            .id();
+        item_index.insert(typed, entity);
+    }
+
+    if let Some(max) = max_item_provided {
         if item_alloc.next <= max {
             item_alloc.reset(max + 1);
         }
     }
-    if let Some(max) = complete.zones.iter().map(|z| z.zone.id.0).max() {
+
+    // Spawn zones
+    for z in scenario_def.zones.iter() {
+        let typed = zone_alloc.assign(z.id.map(ZoneId));
+        let rect = match z.rect {
+            Some((a, b)) => norm_rect(a, b),
+            None => {
+                let p = next_rand_pos();
+                (p, p)
+            }
+        };
+        let entity = commands
+            .spawn((
+                crate::WorldTag,
+                Name::new(format!("Zone#{}", typed.0)),
+                Zone {
+                    id: typed,
+                    kind: z.kind.clone(),
+                    rect,
+                    filters: z.filters.clone(),
+                },
+            ))
+            .id();
+        zone_index.insert(typed, entity);
+    }
+
+    if let Some(max) = max_zone_provided {
         if zone_alloc.next <= max {
             zone_alloc.reset(max + 1);
         }
-    }
-
-    // Spawn pawns, items, zones with typed ID alloc/index using completed data
-    for p in complete.pawns.iter() {
-        spawn_pawn_completed(&mut commands, &mut pawn_index, p);
-    }
-    for it in complete.items.iter() {
-        let _ = spawn_item_completed(&mut commands, &mut item_index, it);
-    }
-    for z in complete.zones.iter() {
-        let _ = spawn_zone_completed(&mut commands, &mut zone_index, z);
     }
 }
 
@@ -116,55 +225,4 @@ pub fn load_scenario_if_headless(
     );
 }
 
-fn spawn_pawn_completed(
-    commands: &mut Commands,
-    index: &mut IdIndex<PawnId>,
-    p: &PawnComplete,
-) -> Entity {
-    let typed = p.pawn.0;
-    let entity = commands
-        .spawn((
-            crate::WorldTag,
-            Name::new(p.name.clone()),
-            p.pawn,
-            p.position,
-        ))
-        .id();
-    index.insert(typed, entity);
-    entity
-}
-
-fn spawn_item_completed(
-    commands: &mut Commands,
-    index: &mut IdIndex<ItemId>,
-    def: &ItemComplete,
-) -> Entity {
-    let typed = def.item.id;
-    let entity = commands
-        .spawn((
-            crate::WorldTag,
-            Name::new(format!("Item#{}", typed.0)),
-            def.item.clone(),
-            def.position,
-        ))
-        .id();
-    index.insert(typed, entity);
-    entity
-}
-
-fn spawn_zone_completed(
-    commands: &mut Commands,
-    index: &mut IdIndex<ZoneId>,
-    _def: &ZoneComplete,
-) -> Entity {
-    let typed = _def.zone.id;
-    let entity = commands
-        .spawn((
-            crate::WorldTag,
-            Name::new(format!("Zone#{}", typed.0)),
-            _def.zone.clone(),
-        ))
-        .id();
-    index.insert(typed, entity);
-    entity
-}
+// spawn helpers removed; completion occurs inline during load

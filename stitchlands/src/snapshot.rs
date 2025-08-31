@@ -1,45 +1,8 @@
 use bevy::prelude::*;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::scenario::model::{Item, Pawn, Position, Zone};
-use crate::{EditBudget, RngResource};
 use simkit_core::Playback;
-
-#[derive(Debug, Serialize)]
-pub struct SnapshotV0 {
-    pub version: u32,
-    pub tick: i32,
-    pub seed: u64,
-    pub edit_per_tick: u32,
-    pub world_tag_count: u32,
-    pub pawns_count: u32,
-    pub scenario_seed: Option<u64>,
-}
-
-pub fn extract_snapshot_v0(
-    playback: &Playback,
-    rng: &RngResource,
-    budget: &EditBudget,
-) -> SnapshotV0 {
-    // Note: called at end of tick in headless. We reconstruct counts via a temporary AppWorld if needed.
-    // In practice, this function will be extended to extract from World; for 0.a/0.b keep it simple.
-    SnapshotV0 {
-        version: 0,
-        tick: playback.tick.0,
-        seed: get_seed_from_rng(rng),
-        edit_per_tick: budget.per_tick,
-        world_tag_count: 0,
-        pawns_count: 0,
-        scenario_seed: None,
-    }
-}
-
-fn get_seed_from_rng(_rng: &RngResource) -> u64 {
-    // In 0.a we just mirror CLI seed; SmallRng doesn't expose seed, so we rely on CLI seeding.
-    // For determinism checks, we pass the CLI seed separately.
-    // This function remains as a placeholder for later extraction logic.
-    0
-}
 
 pub fn stable_hash_json<T: Serialize>(value: &T) -> String {
     let json = serde_json::to_vec(value).expect("serialize snapshot");
@@ -57,13 +20,13 @@ fn fnv1a64_hex(bytes: &[u8]) -> String {
     format!("{hash:016x}")
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PawnEntry {
     pub id: u64,
     pub x: i32,
     pub y: i32,
 }
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ItemEntry {
     pub id: u64,
     pub kind: String,
@@ -71,14 +34,14 @@ pub struct ItemEntry {
     pub x: i32,
     pub y: i32,
 }
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ZoneEntry {
     pub id: u64,
     pub kind: String,
     pub rect: ((i32, i32), (i32, i32)),
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct WorldSnapshot {
     pub tick: i32,
     pub scenario_seed: Option<u64>,
@@ -130,5 +93,72 @@ pub fn build_world_snapshot(
         pawns: pawn_entries,
         items: item_entries,
         zones: zone_entries,
+    }
+}
+
+// Load a snapshot back into the world using the same serializable definition
+pub fn load_world_snapshot(
+    commands: &mut Commands,
+    pawn_index: &mut simkit_core::ids::IdIndex<simkit_core::ids::PawnId>,
+    item_index: &mut simkit_core::ids::IdIndex<simkit_core::ids::ItemId>,
+    zone_index: &mut simkit_core::ids::IdIndex<simkit_core::ids::ZoneId>,
+    snapshot: &WorldSnapshot,
+) {
+    use simkit_core::ids::{ItemId, PawnId, ZoneId};
+    // Spawn pawns
+    for p in snapshot.pawns.iter() {
+        let typed = PawnId(p.id);
+        let entity = commands
+            .spawn((
+                crate::WorldTag,
+                Name::new(format!("Pawn#{}", typed.0)),
+                Pawn(typed),
+                Position(crate::scenario::model::TilePos { x: p.x, y: p.y }),
+            ))
+            .id();
+        pawn_index.insert(typed, entity);
+    }
+    // Spawn items
+    for it in snapshot.items.iter() {
+        let typed = ItemId(it.id);
+        let entity = commands
+            .spawn((
+                crate::WorldTag,
+                Name::new(format!("Item#{}", typed.0)),
+                Item {
+                    id: typed,
+                    kind: it.kind.clone(),
+                    qty: it.qty,
+                },
+                Position(crate::scenario::model::TilePos { x: it.x, y: it.y }),
+            ))
+            .id();
+        item_index.insert(typed, entity);
+    }
+    // Spawn zones
+    for z in snapshot.zones.iter() {
+        let typed = ZoneId(z.id);
+        let entity = commands
+            .spawn((
+                crate::WorldTag,
+                Name::new(format!("Zone#{}", typed.0)),
+                Zone {
+                    id: typed,
+                    kind: z.kind.clone(),
+                    rect: (
+                        crate::scenario::model::TilePos {
+                            x: (z.rect).0 .0,
+                            y: (z.rect).0 .1,
+                        },
+                        crate::scenario::model::TilePos {
+                            x: (z.rect).1 .0,
+                            y: (z.rect).1 .1,
+                        },
+                    ),
+                    filters: vec![],
+                },
+            ))
+            .id();
+        zone_index.insert(typed, entity);
     }
 }
