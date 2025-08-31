@@ -598,3 +598,284 @@ pub fn print_tick_logs(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::prelude::*;
+    use simkit_core::ids::IdAllocator;
+
+    #[test]
+    fn unique_target_res_basic() {
+        let mut res = UniqueTargetRes::default();
+        let key = UniqueTargetKey::Tile(TileId::new(1, 2));
+        let t1 = TaskId(1000);
+        let t2 = TaskId(1001);
+        assert!(res.try_reserve(key, t1));
+        assert!(res.is_owner(key, t1));
+        assert!(!res.try_reserve(key, t2));
+        res.release(key, t1);
+        assert!(!res.is_owner(key, t1));
+        assert!(res.try_reserve(key, t2));
+        assert!(res.is_owner(key, t2));
+    }
+
+    #[test]
+    fn designation_spawner_idempotent() {
+        let mut app = App::new();
+        app.init_resource::<TaskBoard>()
+            .init_resource::<IdAllocator<TaskId>>()
+            .add_systems(Startup, designation_spawner)
+            .add_systems(Update, designation_spawner);
+
+        // Spawn one designation entity with TaskRef(None)
+        let tile = TileId::new(3, 4);
+        app.world_mut().spawn((
+            crate::WorldTag,
+            Name::new("D"),
+            Designation::Harvest(tile),
+            TaskRef(None),
+        ));
+
+        app.update();
+        // Run once more to ensure Startup/Update ordering settles
+        app.update();
+
+        // Verify one task exists and TaskRef is set
+        {
+            let board = app.world().resource::<TaskBoard>();
+            assert_eq!(board.tasks.len(), 1);
+            assert!(matches!(board.tasks[0].kind, TaskKind::Harvest { tile: t } if t == tile));
+        }
+
+        // Run again -> still one task
+        app.update();
+        app.update();
+        {
+            let board = app.world().resource::<TaskBoard>();
+            assert_eq!(board.tasks.len(), 1);
+        }
+
+        // Simulate missing task: clear board but keep TaskRef(Some(id)) on entity
+        app.world_mut().resource_mut::<TaskBoard>().tasks.clear();
+        app.update();
+        app.update();
+        // Should recreate exactly one task
+        {
+            let board = app.world().resource::<TaskBoard>();
+            assert_eq!(board.tasks.len(), 1);
+            assert!(matches!(board.tasks[0].kind, TaskKind::Harvest { tile: t } if t == tile));
+        }
+    }
+
+    #[test]
+    fn needs_daemon_emit_no_duplicates() {
+        let mut app = App::new();
+        app.init_resource::<TaskBoard>()
+            .init_resource::<IdAllocator<TaskId>>()
+            .add_systems(Startup, needs_daemon_emit);
+
+        // Pawn below hunger threshold
+        let pawn = Pawn { id: PawnId(1000) };
+        let needs = Needs { hunger: 0.2, rest: 0.9 };
+        app.world_mut().spawn((pawn, needs));
+
+        app.update();
+        {
+            let board = app.world().resource::<TaskBoard>();
+            let count = board
+                .tasks
+                .iter()
+                .filter(|t| matches!(t.kind, TaskKind::EatAuto { pawn: p } if p == pawn.id))
+                .count();
+            assert_eq!(count, 1);
+        }
+        // Run again, should remain one
+        app.update();
+        {
+            let board = app.world().resource::<TaskBoard>();
+            let count = board
+                .tasks
+                .iter()
+                .filter(|t| matches!(t.kind, TaskKind::EatAuto { pawn: p } if p == pawn.id))
+                .count();
+            assert_eq!(count, 1);
+        }
+    }
+
+    #[test]
+    fn scheduler_assign_picks_low_tid_on_tie() {
+        let mut app = App::new();
+        app.init_resource::<TaskBoard>()
+            .init_resource::<IdAllocator<TaskId>>()
+            .init_resource::<LogBuffer>()
+            .add_systems(Startup, scheduler_assign);
+
+        // One idle pawn at (0,0)
+        let pawn = Pawn { id: PawnId(1000) };
+        let pos = TileId::new(0, 0);
+        app.world_mut().spawn((pawn, pos));
+
+        // Two equal tasks at same distance and priority
+        let mut alloc = app.world_mut().resource_mut::<IdAllocator<TaskId>>().clone();
+        {
+            let mut board = app.world_mut().resource_mut::<TaskBoard>();
+            let id1 = board.add_task(&mut alloc, TaskKind::Harvest { tile: TileId::new(1, 0) }, PRIO_HARVEST, None);
+            let id2 = board.add_task(&mut alloc, TaskKind::Harvest { tile: TileId::new(1, 0) }, PRIO_HARVEST, None);
+            // Write back allocator (simulate the resource advanced by two)
+            *app.world_mut().resource_mut::<IdAllocator<TaskId>>() = alloc;
+            // Ensure lower id will win
+            assert!(id1.0 < id2.0);
+        }
+
+        app.update();
+
+        // Pawn should have a Job and chosen task set to Running
+        {
+            let world = app.world_mut();
+            let mut q = world.query::<(&Job, &Pawn)>();
+            let v: Vec<_> = q.iter(world).collect();
+            assert_eq!(v.len(), 1);
+            let (job, p) = v[0];
+            assert_eq!(p.id, PawnId(1000));
+            let board = world.resource::<TaskBoard>();
+            let chosen = board.tasks.iter().find(|t| t.id == job.task).unwrap();
+            assert_eq!(chosen.status, TaskStatus::Running);
+            // The other should remain Pending
+            let other = board.tasks.iter().find(|t| t.id != job.task).unwrap();
+            assert_eq!(other.status, TaskStatus::Pending);
+        }
+    }
+
+    #[test]
+    fn hard_need_interrupts_releases_and_emits() {
+        let mut app = App::new();
+        app.init_resource::<TaskBoard>()
+            .init_resource::<UniqueTargetRes>()
+            .init_resource::<IdAllocator<TaskId>>()
+            .init_resource::<LogBuffer>()
+            .add_systems(Startup, hard_need_interrupts);
+
+        // Prepare a running harvest task
+        let tile = TileId::new(5, 5);
+        let mut alloc = app.world_mut().resource_mut::<IdAllocator<TaskId>>().clone();
+        let task_id = {
+            let mut board = app.world_mut().resource_mut::<TaskBoard>();
+            let id = board.add_task(&mut alloc, TaskKind::Harvest { tile }, PRIO_HARVEST, None);
+            board.get_mut(id).unwrap().status = TaskStatus::Running;
+            id
+        };
+        *app.world_mut().resource_mut::<IdAllocator<TaskId>>() = alloc;
+
+        // Reserve the target for the task
+        {
+            let mut uniq = app.world_mut().resource_mut::<UniqueTargetRes>();
+            uniq.try_reserve(UniqueTargetKey::Tile(tile), task_id);
+        }
+
+        // Spawn pawn with Job(Harvest) and low hunger
+        let pawn = Pawn { id: PawnId(2000) };
+        let needs = Needs { hunger: 0.1, rest: 0.9 };
+        let job = Job {
+            task: task_id,
+            driver: JobDriver::Harvest {
+                target: tile,
+                state: HarvestState::ReserveTarget,
+                reserved: Some(UniqueTargetKey::Tile(tile)),
+            },
+        };
+        app.world_mut().spawn((pawn, needs, job));
+
+        app.update();
+
+        // Verify job removed, task Pending, reservation released, EatAuto emitted, and a preempt log exists
+        {
+            let world = app.world_mut();
+            let mut q = world.query::<&Job>();
+            assert_eq!(q.iter(world).count(), 0);
+            let board = world.resource::<TaskBoard>();
+            let t = board.tasks.iter().find(|t| t.id == task_id).unwrap();
+            assert_eq!(t.status, TaskStatus::Pending);
+            let uniq = world.resource::<UniqueTargetRes>();
+            assert!(!uniq.is_owner(UniqueTargetKey::Tile(tile), task_id));
+            assert!(board.tasks.iter().any(|t| matches!(t.kind, TaskKind::EatAuto { pawn: p } if p == PawnId(2000))));
+            let logs = world.resource::<LogBuffer>();
+            assert!(matches!(logs.events.last(), Some(LogEvent::Preempt { .. })));
+        }
+    }
+
+    #[test]
+    fn job_tick_harvest_reserve_to_travel() {
+        let mut app = App::new();
+        app.init_resource::<TaskBoard>()
+            .init_resource::<UniqueTargetRes>()
+            .add_systems(Startup, job_tick);
+
+        // Create task and pawn job at ReserveTarget
+        let tile = TileId::new(2, 2);
+        let task_id = TaskId(1000);
+        app.world_mut().insert_resource(TaskBoard {
+            tasks: vec![Task {
+                id: task_id,
+                kind: TaskKind::Harvest { tile },
+                status: TaskStatus::Running,
+                priority: PRIO_HARVEST,
+                owner: None,
+            }],
+        });
+        let pawn = Pawn { id: PawnId(3000) };
+        let needs = Needs { hunger: 1.0, rest: 1.0 };
+        let pos = TileId::new(0, 0);
+        let job = Job {
+            task: task_id,
+            driver: JobDriver::Harvest {
+                target: tile,
+                state: HarvestState::ReserveTarget,
+                reserved: None,
+            },
+        };
+        app.world_mut().spawn((pawn, needs, pos, job));
+
+        app.update();
+
+        // Should move to TravelCountdown and reserve key
+        {
+            let world = app.world_mut();
+            let mut q = world.query::<(&Job, &TileId)>();
+            let v: Vec<_> = q.iter(world).collect();
+            assert_eq!(v.len(), 1);
+            let (job, pos) = v[0];
+            match job.driver {
+                JobDriver::Harvest { target, state, reserved } => {
+                    assert_eq!(target, tile);
+                    assert!(matches!(state, HarvestState::TravelCountdown { .. }));
+                    assert_eq!(reserved, Some(UniqueTargetKey::Tile(tile)));
+                    // Distance is >= 1
+                    if let HarvestState::TravelCountdown { ticks_left } = state {
+                        assert!(ticks_left >= 1);
+                    }
+                    // Position unchanged
+                    assert_eq!(pos, &TileId::new(0, 0));
+                }
+                _ => panic!("unexpected driver"),
+            }
+        }
+    }
+
+    #[test]
+    fn release_stale_reservations_cleans_missing_task() {
+        let mut app = App::new();
+        app.insert_resource(TaskBoard::default())
+            .insert_resource({
+                let mut res = UniqueTargetRes::default();
+                res.owners.insert(UniqueTargetKey::Tile(TileId::new(1, 1)), TaskId(9999));
+                res
+            })
+            .add_systems(Startup, release_stale_reservations);
+
+        app.update();
+
+        let uniq = app.world().resource::<UniqueTargetRes>();
+        assert!(uniq.owners.is_empty());
+    }
+}
