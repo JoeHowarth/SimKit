@@ -6,6 +6,10 @@ use bevy_asset_loader::loading_state::{LoadingState, LoadingStateAppExt};
 
 pub mod fixed_point;
 pub mod ids;
+pub mod grid;
+pub mod occupancy;
+pub mod pathfinding;
+pub mod snapshot;
 pub mod menu;
 pub mod playback;
 pub mod pod;
