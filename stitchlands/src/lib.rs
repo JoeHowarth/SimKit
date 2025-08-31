@@ -1,3 +1,5 @@
+#![allow(clippy::type_complexity, clippy::too_many_arguments)]
+
 use bevy::prelude::*;
 use rand::{rngs::SmallRng, SeedableRng};
 
@@ -192,9 +194,9 @@ fn auto_enter_ingame_if_headless(
 fn headless_exit_after_ticks(
     cli: Option<Res<CliOptions>>,
     playback: Res<Playback>,
-    budget: Res<EditBudget>,
-    rng: Res<RngResource>,
-    world_tag_q: Query<Entity, With<WorldTag>>,
+    _budget: Res<EditBudget>,
+    _rng: Res<RngResource>,
+    _world_tag_q: Query<Entity, With<WorldTag>>,
     pawn_q: Query<(
         &crate::scenario::model::Pawn,
         &crate::scenario::model::Position,

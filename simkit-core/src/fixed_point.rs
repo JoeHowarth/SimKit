@@ -63,14 +63,10 @@ impl Q40p24 {
     /// Floor toward -inf.
     #[inline]
     pub const fn floor(self) -> i64 {
-        if self.0 >= 0 {
+        if self.0 >= 0 || (self.0 & Self::FRACTION_MASK) == 0 {
             self.trunc()
         } else {
-            if (self.0 & Self::FRACTION_MASK) == 0 {
-                self.trunc()
-            } else {
-                self.trunc() - 1
-            }
+            self.trunc() - 1
         }
     }
 
@@ -335,10 +331,10 @@ impl fmt::Display for Q40p24 {
         }
 
         let neg = raw < 0;
-        let mut abs = if neg { raw.wrapping_neg() } else { raw };
+        let abs = if neg { raw.wrapping_neg() } else { raw };
 
-        let mut int_part: i64 = (abs >> Q40p24::FRAC_BITS) as i64;
-        let frac_raw = (abs & Q40p24::FRACTION_MASK) as i64;
+        let mut int_part: i64 = abs >> Q40p24::FRAC_BITS;
+        let frac_raw = abs & Q40p24::FRACTION_MASK;
 
         // scale fractional to 6 digits with rounding
         let mut frac6 = (((frac_raw as i128) * 1_000_000i128) + (1i128 << (Q40p24::FRAC_BITS - 1)))

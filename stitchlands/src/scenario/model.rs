@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
-use simkit_core::ids::{BlueprintId, ItemId, PawnId, ZoneId};
+use simkit_core::ids::{ItemId, PawnId, ZoneId};
 use std::collections::{HashMap, HashSet};
 
 // Basic map/tiles; unused in 0.b beyond size
@@ -215,7 +215,7 @@ pub fn complete_scenario(def: &ScenarioDef, fallback_seed: u64) -> Scenario {
     };
 
     // Deterministic ID completion: fill missing IDs with the lowest positive integer not yet used.
-    let mut complete_ids = |given: &mut Vec<Option<u64>>| {
+    let complete_ids = |given: &mut Vec<Option<u64>>| {
         let mut used: HashSet<u64> = given.iter().filter_map(|x| *x).collect();
         for id in given.iter_mut() {
             if id.is_none() {
@@ -255,7 +255,7 @@ pub fn complete_scenario(def: &ScenarioDef, fallback_seed: u64) -> Scenario {
             name: p.name.clone().unwrap_or_else(|| format!("Pawn{}", i + 1)),
             pawn: Pawn(PawnId(pawn_ids[i].unwrap())),
             position: Position({
-                let base = p.pos.unwrap_or_else(|| next_rand_pos());
+                let base = p.pos.unwrap_or_else(&mut next_rand_pos);
                 unique_pos(&mut used_pawn_positions, base, &mut next_rand_pos)
             }),
             needs: p.needs,
@@ -277,7 +277,7 @@ pub fn complete_scenario(def: &ScenarioDef, fallback_seed: u64) -> Scenario {
                 qty: it.qty,
             },
             position: Position({
-                let base = it.pos.unwrap_or_else(|| next_rand_pos());
+                let base = it.pos.unwrap_or_else(&mut next_rand_pos);
                 unique_pos(&mut used_item_positions, base, &mut next_rand_pos)
             }),
         })

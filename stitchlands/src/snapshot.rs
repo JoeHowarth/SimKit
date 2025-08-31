@@ -2,8 +2,7 @@ use bevy::prelude::*;
 use serde::Serialize;
 
 use crate::scenario::model::{Item, Pawn, Position, Zone};
-use crate::scenario::LoadedScenarioMeta;
-use crate::{EditBudget, RngResource, WorldTag};
+use crate::{EditBudget, RngResource};
 use simkit_core::Playback;
 
 #[derive(Debug, Serialize)]
@@ -91,9 +90,9 @@ pub struct WorldSnapshot {
 pub fn build_world_snapshot(
     playback: &Playback,
     scenario_seed: Option<u64>,
-    pawns: &Vec<(Pawn, Position)>,
-    items: &Vec<(Item, Position)>,
-    zones: &Vec<Zone>,
+    pawns: &[(Pawn, Position)],
+    items: &[(Item, Position)],
+    zones: &[Zone],
 ) -> WorldSnapshot {
     let mut pawn_entries: Vec<PawnEntry> = pawns
         .iter()

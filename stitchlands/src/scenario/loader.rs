@@ -3,13 +3,13 @@ use std::fs;
 use bevy::prelude::*;
 use rand::{rngs::SmallRng, SeedableRng};
 
-use crate::{CliOptions, RngResource, WorldTag};
+use crate::{CliOptions, RngResource};
 
 use super::model::{
-    complete_scenario, Item, ItemComplete, Pawn, PawnComplete, Position, ScenarioDef, Zone,
+    complete_scenario, ItemComplete, PawnComplete, ScenarioDef,
     ZoneComplete,
 };
-use simkit_core::ids::{IdAllocator, IdIndex, ItemId, PawnId, SimId, ZoneId};
+use simkit_core::ids::{IdAllocator, IdIndex, ItemId, PawnId, ZoneId};
 
 #[derive(Resource, Default, Debug, Clone, Copy)]
 pub struct LoadedScenarioMeta {
@@ -30,8 +30,7 @@ pub fn load_scenario(
     // Resources provided by plugin init
     let scenario_opt = cli
         .as_deref()
-        .and_then(|c| c.scenario.as_ref())
-        .map(|p| p.clone());
+        .and_then(|c| c.scenario.as_ref()).cloned();
 
     // Parse editable ScenarioDef from RON
     let scenario_def: ScenarioDef = if let Some(path) = scenario_opt {
@@ -127,7 +126,7 @@ fn spawn_pawn_completed(
         .spawn((
             crate::WorldTag,
             Name::new(p.name.clone()),
-            p.pawn.clone(),
+            p.pawn,
             p.position,
         ))
         .id();
