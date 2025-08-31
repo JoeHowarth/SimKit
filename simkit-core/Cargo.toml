@@ -11,3 +11,4 @@ bevy_asset_loader = { workspace = true }
 log = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+bitflags = { workspace = true }
