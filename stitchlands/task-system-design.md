@@ -1,98 +1,108 @@
-What problem this solves
+## Problem Solved:
 
-You have autonomous pawns in an open world that should pursue high level intents like build this, haul that, keep themselves alive, and not thrash between jobs. You want correctness and debuggability first, not cleverness. No learned planners, no heavy indices. Just a predictable system that converts agent intents into concrete, stepwise work while respecting needs like eating and sleeping, avoiding resource conflicts, and staying deterministic enough to replay.
+This system addresses the challenge of managing autonomous pawns in an open world with complex, high-level intents such as building, resource gathering, and survival. The primary goal is to ensure correctness and debuggability over cleverness, avoiding complex learned planners or heavy indexing. The system aims to provide a predictable mechanism for agents to execute tasks step-by-step, while respecting fundamental needs like eating and sleeping, preventing resource conflicts, and maintaining a degree of determinism for replays.
 
-How we solve it at a high level
+## High-Level Solution:
 
-We keep one authoritative list of tasks and run a greedy, single pass scheduler each tick:
-	1.	A needs daemon emits Eat and Sleep tasks when thresholds trip.
-	2.	For each ready pawn, we scan the task list, filter what is currently assignable, score candidates with a tiny heuristic, and assign the best.
-	3.	Jobs are tiny state machines with explicit checkpoints. Soft preemption only at checkpoints with hysteresis. Hard needs can interrupt anywhere.
-	4.	Reservations are minimal: count reservations for items and a simple target reservation for unique sites. Release on suspend or fail.
+The solution hinges on a single, authoritative list of tasks that is processed by a greedy, single-pass scheduler on each game tick.
 
-This yields simple code paths and transparent decisions while retaining the RimWorld feel.
+1.  **Needs Daemon:** A dedicated component monitors pawn needs (hunger, rest) and generates "Eat" and "Sleep" tasks when predefined thresholds are met.
+2.  **Pawn Assignment:** For each available pawn, the system scans the task list, filters for assignable tasks, scores them using a simple heuristic, and assigns the highest-scoring task.
+3.  **Job Structure:** Jobs are implemented as small state machines with explicit checkpoints. Soft preemption is allowed only at these checkpoints, with hysteresis to prevent thrashing. However, critical needs can interrupt a pawn's current job at any point.
+4.  **Resource Reservations:** Minimal reservations are used. Pawns reserve quantities of items and unique sites (like building blueprints). These reservations are released upon job suspension or failure.
 
-More detailed description
+This approach results in straightforward code, transparent decision-making, and preserves the characteristic feel of games like RimWorld.
 
-Core data model
-	•	Task: type, args, workType, priority label, status, optional owner pawn for needs. Lives in a single Vec.
-	•	PawnProfile: skills or just workType weights, needs (hunger, rest), position, current job.
-	•	World bits: stockpile with item counts and reserved counts, blueprints, bed.
-	•	ReservationMap: implicit inside stockpile reserved counts plus a map for unique targets like blueprint B1.
-	•	Job: a small driver per task type with a handful of states and a boolean at_checkpoint.
+## Detailed Description:
 
-Tick pipeline
-	1.	Needs decay - hunger and rest drift down each tick.
-	2.	Needs daemon - if thresholds fall below soft or hard limits, enqueue Eat or Sleep for that pawn with dynamic priority.
-	3.	Hard interrupts - if a pawn hits a hard threshold while not already on a needs job, suspend its current job and free reservations.
-	4.	Scheduling - for each pawn that is idle or at a checkpoint:
-	•	Build candidates by scanning tasks with status Pending or Suspended, unassigned, and assignable(pawn, world).
-	•	Score = workTypeWeight(pawn) * priorityLabel + typeUrgency(pawn, task) - α * distance - β * setupPenalty.
-	•	Respect stickiness by only switching at checkpoints when the new candidate clearly wins either in priority or urgency by a margin.
-	•	On assign, flip task to Running, mark assigned_to, and spawn the job driver.
-	5.	Job ticking - each pawn advances its job one step. Jobs perform prechecks, update position, convert reservations to inventory, deliver materials, or work until done. On completion or failure, update task status and clear ownership.
+### Core Data Model:
 
-Assignable and urgency
-	•	assignable checks the minimal gates to start step 1:
-	•	Needs tasks: owner matches pawn and preconditions hold.
-	•	Build: blueprint not built, and there is at least some required item available or already delivered.
-	•	Sleep: bed is free or already reserved by this pawn.
-	•	typeUrgency is intentionally small and explainable:
-	•	Eat scales with 1 - hunger, Sleep scales with 1 - rest.
-	•	Build bumps when all materials are onsite to nudge building over additional hauling.
+- **Task:** Contains details like type, arguments, work type, priority, status, and an optional owner pawn for needs-based tasks. Tasks are stored in a single list.
+- **PawnProfile:** Stores pawn-specific information such as skills or work type weights, current needs (hunger, rest), location, and their current job.
+- **World State:** Includes elements like stockpiles (with item counts and reservations), blueprints, and beds.
+- **ReservationMap:** Manages reservations for items within stockpiles and reservations for unique target sites (e.g., a specific blueprint).
+- **Job:** A small, task-specific driver with a few states and a flag indicating if the pawn is at a checkpoint.
 
-Scoring and preemption
-	•	Scoring terms you start with:
-	•	workType weight from setPawnPriorities
-	•	task priority label from the agent
-	•	type urgency
-	•	distance penalty to the first step
-	•	small setup penalty for tasks that usually need a haul cycle
-	•	Soft preemption only at checkpoints, with a hysteresis margin so pawns do not thrash for small gains. Hard interrupts bypass this.
+### Tick Pipeline:
 
-Reservations
-	•	Items: reserve small quantities at assignment, convert reservations to inventory at pickup, and release on suspend or failure. Eat uses unreserved take so it never steals from build reservations.
-	•	Unique targets: reserve a blueprint id so only one builder works that spot. Release on suspend, cancel, or completion.
-	•	Expire stale reservations when a job is suspended or a task is cancelled.
+1.  **Needs Decay:** Pawn needs like hunger and rest gradually decrease over time.
+2.  **Needs Daemon:** If a pawn's needs fall below critical thresholds, "Eat" or "Sleep" tasks are created with dynamically adjusted priorities.
+3.  **Hard Interrupts:** If a pawn experiences a critical need while engaged in another task, their current job is suspended, and its reservations are freed.
+4.  **Scheduling:** For each idle pawn or pawn at a checkpoint:
+    - **Candidate Generation:** Tasks with "Pending" or "Suspended" status that are unassigned and can be performed by the pawn (considering world state) are identified.
+    - **Scoring:** A score is calculated based on work type weight, task priority, type urgency, distance to the task, and a setup penalty.
+    - **Job Assignment:** Pawns will only switch tasks at checkpoints if the new candidate offers a significant improvement in priority or urgency. Upon assignment, the task status is updated to "Running," the pawn is marked as assigned, and its job driver is spawned.
+5.  **Job Ticking:** Each pawn progresses its assigned job by one step. Jobs involve pre-checks, movement, resource acquisition, or work execution. Upon completion or failure, task status is updated, and pawn ownership is cleared.
 
-Job drivers
-	•	Build: ReserveTargetAndItems - MoveToStockpile - Pickup - MoveToSite - Deliver - Build. Checkpoints before Deliver and after Deliver. Minimal retries if stock changes underfoot.
-	•	Eat: MoveToStockpile - Eat. On success, increase hunger, complete. On failure due to no food, suspend.
-	•	Sleep: MoveToBed - Sleep. Reserve bed while sleeping, release on wake.
+### Assignability and Urgency:
 
-Correctness and determinism
-	•	Stable iteration order for pawns and tasks provides deterministic assignment. Ties break by distance then id.
-	•	Invariants:
-	•	reserved + available never exceeds actual item count
-	•	only one owner of a unique target at a time
-	•	reservations are released on suspend, cancel, or complete
-	•	preemption never happens mid step unless it is a hard need
-	•	The greedy matcher is O(P * T) per scheduling pass, which is acceptable for an MVP and keeps reasoning obvious.
+- **Assignable:** Checks basic requirements for starting a task, such as matching pawn ownership for needs tasks, availability of building materials, or free beds for sleeping.
+- **Type Urgency:** A minor factor that influences task selection. For example, "Eat" task urgency increases with lower hunger levels, and "Sleep" urgency increases with lower rest levels. Building tasks receive a small urgency boost when all necessary materials are present.
 
-Failure handling
-	•	Temporary failures move a task to Suspended with a natural retry when preconditions are met again.
-	•	Permanent failures mark Failed with a reason string visible to the agent or UI.
-	•	Cancellations respect interruptible flags: stop at next checkpoint or after the current step.
+### Scoring and Preemption:
 
-Observability
-	•	Every assignment logs the winning score and key terms that mattered.
-	•	Preemption logs include from, to, reason, and delta urgency or priority.
-	•	A simple overlay for reservations and current targets makes conflicts visible.
-	•	Deterministic seeds support replay for bugs.
+The scoring system incorporates:
 
-Agent API mapping
-	•	addTask(type, args) creates a Task with default Normal priority and interruptible true.
-	•	removeTask(id) marks Cancelled and either stops at next checkpoint or after the current step.
-	•	setPawnPriorities(map) updates workType weights and immediately biases the scheduler without touching existing jobs.
+- **WorkType Weight:** Pawn-specific preferences for certain types of work.
+- **Task Priority Label:** An explicit priority assigned to the task.
+- **Type Urgency:** The dynamic urgency of the task.
+- **Distance Penalty:** A deduction based on the pawn's proximity to the task.
+- **Setup Penalty:** A small deduction for tasks that typically require an initial hauling phase.
 
-Extensibility path
-	•	Add task types by implementing assignable, typeUrgency, and a small Job driver. No change to the scheduler.
-	•	Optional later upgrades:
-	•	A WorkGiver layer and event driven indices if T grows.
-	•	Opportunistic hauling as a bounded micro step to amortize logistics.
-	•	Multi pawn jobs that atomically reserve all participants.
-	•	Danger and deadline terms in scoring.
+**Soft preemption** is limited to checkpoints, with a hysteresis margin to prevent frequent task switching for minor gains. **Hard interrupts** for critical needs can override this.
 
-Why this shape
+### Reservations:
 
-It is the smallest architecture that still feels like a colony sim: needs interrupt, jobs are sticky, resources are not double booked, and decisions are explainable. You can ship it, play it, and then decide where added complexity actually pays for itself.
+- **Items:** Small quantities of items are reserved upon task assignment, converted to inventory upon pickup, and released if the job is suspended or fails. Tasks like "Eat" use unreserved items to avoid conflict with building reservations.
+- **Unique Targets:** A specific site or blueprint is reserved by only one builder at a time. This reservation is released upon job suspension, cancellation, or completion.
+- **Stale Reservations:** Reservations are expired if a job is suspended or a task is canceled.
+
+### Job Drivers:
+
+Examples of job sequences:
+
+- **Build:** Reserve Target and Items -> Move to Stockpile -> Pickup -> Move to Site -> Deliver -> Build. Checkpoints exist before and after delivery. Minimal retries occur if resources change.
+- **Eat:** Move to Stockpile -> Eat. Success increases hunger and completes the task. Failure due to lack of food suspends the task.
+- **Sleep:** Move to Bed -> Sleep. The bed is reserved while sleeping and released upon waking.
+
+### Correctness and Determinism:
+
+- **Stable Iteration:** Consistent ordering of pawns and tasks during processing ensures deterministic assignments. Ties are broken by distance, then by ID.
+- **Invariants:**
+  - Reserved items + available items never exceed the actual item count.
+  - Unique targets are owned by only one entity at a time.
+  - Reservations are always released upon job suspension, cancellation, or completion.
+  - Mid-step preemption only occurs for critical needs.
+- **Performance:** The greedy matching algorithm has a time complexity of O(P \* T) per scheduling pass, which is considered acceptable for an initial implementation and maintains transparency.
+
+### Failure Handling:
+
+- **Temporary Failures:** Tasks are moved to "Suspended" status and will naturally retry when their preconditions are met again.
+- **Permanent Failures:** Tasks are marked as "Failed" with a reason string that can be displayed to the player or agent.
+- **Cancellations:** Cancellations respect an "interruptible" flag, stopping the task at the next checkpoint or after the current step.
+
+### Observability:
+
+- **Assignment Logging:** Every pawn assignment logs the winning score and the key factors influencing the decision.
+- **Preemption Logging:** Logs detail the source, destination, reason for preemption, and changes in urgency or priority.
+- **Debug Overlay:** A simple visual overlay highlights current reservations and targets, making conflicts easily visible.
+- **Deterministic Seeds:** Support for seeds allows for bug reproduction through replay.
+
+### Agent API Mapping:
+
+- **`addTask(type, args)`:** Creates a new Task with default "Normal" priority and interruptible status set to true.
+- **`removeTask(id)`:** Marks a task as "Cancelled," and it will stop at the next checkpoint or after the current step, depending on its interruptible flag.
+- **`setPawnPriorities(map)`:** Updates pawn work type weights, influencing the scheduler without altering currently assigned jobs.
+
+### Extensibility Path:
+
+- **Adding Task Types:** New task types can be added by implementing `assignable`, `typeUrgency`, and a small `Job` driver, with no changes required for the core scheduler.
+- **Future Upgrades:**
+  - Implementing a `WorkGiver` layer and event-driven indices for larger task lists.
+  - Introducing opportunistic hauling as a background task to optimize logistics.
+  - Supporting multi-pawn jobs that atomically reserve all involved participants.
+  - Incorporating "danger" and "deadline" metrics into the scoring.
+
+### Why This Architecture:
+
+This design represents the leanest architecture capable of delivering a satisfying colony simulation experience. It ensures that needs are prioritized, jobs have a degree of persistence, resources are managed without conflicts, and decision-making is transparent. This approach allows for a shippable product that can be played and tested, guiding future complexity additions based on actual gameplay needs.
