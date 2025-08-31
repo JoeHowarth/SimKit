@@ -18,6 +18,7 @@ pub mod ids;
 pub mod scenario;
 pub mod snapshot;
 pub mod world;
+pub mod tasks;
 use crate::scenario::LoadedScenarioMeta;
 
 // Resources and markers
@@ -95,6 +96,11 @@ impl Plugin for StitchlandsCorePlugin {
         // Resources
         app.init_resource::<EditBudget>()
             .init_resource::<RngResource>()
+            // Task system core resources
+            .init_resource::<tasks::TaskBoard>()
+            .init_resource::<tasks::UniqueTargetRes>()
+            .init_resource::<tasks::LogBuffer>()
+            .init_resource::<simkit_core::ids::IdAllocator<ids::TaskId>>()
             .add_plugins(crate::scenario::ScenarioPlugin)
             .add_event::<SnapshotSaveEvent>()
             // Chain our sub-sets inside KitSystemSet phases
@@ -131,16 +137,17 @@ impl Plugin for StitchlandsCorePlugin {
                 FixedUpdate,
                 (
                     reset_edit_budget.in_set(StitchPreStepSet::ResetEditBudget),
-                    needs_daemon_emit_stub.in_set(StitchPreStepSet::NeedsDaemonEmit),
-                    designation_spawner_stub.in_set(StitchPreStepSet::DesignationSpawner),
-                    task_prune_stub.in_set(StitchPreStepSet::TaskPrune),
+                    tasks::needs_daemon_emit.in_set(StitchPreStepSet::NeedsDaemonEmit),
+                    tasks::designation_spawner.in_set(StitchPreStepSet::DesignationSpawner),
+                    tasks::task_prune_minimal.in_set(StitchPreStepSet::TaskPrune),
                     path_cache_prepare_stub.in_set(StitchPreStepSet::PathCachePrepare),
-                    hard_need_interrupts_stub.in_set(StitchStepSet::HardNeedInterrupts),
-                    scheduler_assign_stub.in_set(StitchStepSet::SchedulerAssign),
+                    tasks::hard_need_interrupts.in_set(StitchStepSet::HardNeedInterrupts),
+                    tasks::scheduler_assign.in_set(StitchStepSet::SchedulerAssign),
+                    tasks::job_tick.in_set(StitchStepSet::JobTick),
                     telemetry_sample_stub.in_set(StitchPostStepSet::TelemetrySample),
-                    release_stale_reservations_stub
+                    tasks::release_stale_reservations
                         .in_set(StitchPostStepSet::ReleaseStaleReservations),
-                    job_tick_stub.in_set(StitchStepSet::JobTick),
+                    tasks::print_tick_logs.in_set(KitSystemSet::PostStep),
                     headless_exit_after_ticks.in_set(KitSystemSet::PostStep),
                     sync_tile_index::<Pawn>.in_set(KitSystemSet::PostStep),
                     sync_tile_index::<Item>.in_set(KitSystemSet::PostStep),

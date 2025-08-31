@@ -9,6 +9,7 @@ use super::model::ScenarioDef;
 use crate::components::{Item, Pawn, Zone};
 use crate::ids::{ItemId, PawnId, ZoneId};
 use crate::world::WorldGrid;
+use crate::tasks::{Designation, Needs, TaskRef};
 use simkit_core::grid::index::TileMapIndex;
 use simkit_core::grid::{GridConfig, TileId};
 use simkit_core::ids::{IdAllocator, IdIndex};
@@ -162,6 +163,9 @@ pub fn load_scenario_from_def(
         &scenario_def.zones,
     );
 
+    // Designations
+    spawn_designations_from_def(&mut commands, &scenario_def.designations);
+
     // Finally insert resources
     commands.insert_resource(world_grid);
     commands.insert_resource(pawn_tile_index);
@@ -247,8 +251,18 @@ fn spawn_pawns_from_def(
             Some(pos) => unique_pos(&mut used_positions, pos, &mut gen),
             None => unique_pos(&mut used_positions, gen(), &mut gen),
         };
+        let needs = Needs {
+            hunger: p.needs.hunger,
+            rest: p.needs.rest,
+        };
         let entity = commands
-            .spawn((crate::WorldTag, Name::new(name), Pawn { id: typed }, pos))
+            .spawn((
+                crate::WorldTag,
+                Name::new(name),
+                Pawn { id: typed },
+                needs,
+                pos,
+            ))
             .id();
         index.insert(typed, entity);
 
@@ -330,6 +344,25 @@ fn spawn_zones_from_def(
         index.insert(typed, entity);
     }
     bump_alloc_after_provided(alloc, max_provided);
+}
+
+fn spawn_designations_from_def(
+    commands: &mut Commands,
+    designations: &[super::model::DesignationDef],
+) {
+    for d in designations.iter() {
+        match d {
+            super::model::DesignationDef::Harvest(tile) => {
+                let name = format!("Designation(Harvest @{}, {})", tile.x, tile.y);
+                commands.spawn((
+                    crate::WorldTag,
+                    Name::new(name),
+                    Designation::Harvest(*tile),
+                    TaskRef(None),
+                ));
+            }
+        }
+    }
 }
 
 #[cfg(test)]
