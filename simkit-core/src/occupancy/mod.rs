@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::grid::{Grid2D, GridConfig, TileId};
 
 bitflags::bitflags! {
-    #[derive(Serialize, Deserialize, Reflect)]
+    #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub struct Occupancy: u8 {
         const PAWN = 0b0001;
         const ITEM = 0b0010;
@@ -18,7 +18,7 @@ impl Default for Occupancy {
     }
 }
 
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Reflect)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EntityTileLink {
     pub tile: TileId,
 }
@@ -78,4 +78,3 @@ mod tests {
         assert!(!occ.get(t).contains(Occupancy::PAWN));
     }
 }
-
