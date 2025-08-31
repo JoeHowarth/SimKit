@@ -1,3 +1,37 @@
+//! Task system core for Stitchlands: tasks, needs, scheduler, and job drivers.
+//!
+//! Intuition: tasks live on a central TaskBoard; systems emit tasks
+//! (from designations or needs), a deterministic scheduler assigns them
+//! to pawns, and per-tick job drivers advance work. Reservations prevent
+//! multiple pawns from working the same unique target.
+//!
+//! Lifecycle (Harvest example)
+//!
+//!   [Designation::Harvest(tile) + TaskRef(None)]
+//!                 │  (PreStep: designation_spawner)
+//!                 ▼
+//!         [TaskBoard] — push Task{Harvest, Pending}
+//!                 │  (Step: scheduler_assign)
+//!                 ▼
+//!     Pawn gets Job{Harvest, ReserveTarget}
+//!                 │  (Step: job_tick)
+//!                 ▼
+//!     Reserve target ──▶ TravelCountdown (ticks = manhattan)
+//!                 │             │ (each tick)
+//!                 │             ▼
+//!                 │      WorkCountdown (ticks = 5)
+//!                 │             │ (each tick)
+//!                 ▼             ▼
+//!             Done — release reservation; despawn Designation; remove Job
+//!                 │  (next PreStep: task_prune_minimal)
+//!                 ▼
+//!        Task removed from TaskBoard
+//!
+//! Needs-driven interrupts:
+//! - If a pawn is running Harvest and hunger/rest drop below LOW thresholds,
+//!   the job is preempted (task reset to Pending, reservation released), and
+//!   a needs task (EatAuto/SleepAuto) is ensured for that pawn.
+//!
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -877,5 +911,66 @@ mod tests {
 
         let uniq = app.world().resource::<UniqueTargetRes>();
         assert!(uniq.owners.is_empty());
+    }
+
+    #[test]
+    fn integration_harvest_from_designation_to_completion() {
+        let mut app = App::new();
+        // Core resources
+        app.init_resource::<TaskBoard>()
+            .init_resource::<UniqueTargetRes>()
+            .init_resource::<IdAllocator<TaskId>>()
+            .init_resource::<LogBuffer>()
+            // Run the full chain each Update (deterministic order)
+            .add_systems(
+                Update,
+                (
+                    designation_spawner,
+                    needs_daemon_emit,
+                    task_prune_minimal,
+                    hard_need_interrupts,
+                    scheduler_assign,
+                    job_tick,
+                    release_stale_reservations,
+                )
+                    .chain(),
+            );
+
+        // World: one pawn near a Harvest designation
+        let pawn = Pawn { id: PawnId(4000) };
+        let pawn_pos = TileId::new(0, 0);
+        let needs = Needs { hunger: 1.0, rest: 1.0 };
+        app.world_mut().spawn((crate::WorldTag, pawn, needs, pawn_pos));
+
+        let target = TileId::new(2, 3); // manhattan = 5
+        app.world_mut().spawn((
+            crate::WorldTag,
+            Name::new("HarvestHere"),
+            Designation::Harvest(target),
+            TaskRef(None),
+        ));
+
+        // Steps required: 1 (assign+reserve) + 5 (travel) + 5 (work) + 1 (prune)
+        let steps = 1 + manhattan(pawn_pos, target) as usize + WORK_TICKS as usize + 1;
+        for _ in 0..steps {
+            app.update();
+        }
+
+        // Assertions: designation despawned, no jobs, no tasks, no reservations
+        {
+            let world = app.world_mut();
+            // No designation entities
+            let mut dq = world.query::<&Designation>();
+            assert_eq!(dq.iter(world).count(), 0);
+            // Pawn has no Job
+            let mut jq = world.query::<&Job>();
+            assert_eq!(jq.iter(world).count(), 0);
+            // TaskBoard empty (pruned)
+            let board = world.resource::<TaskBoard>();
+            assert!(board.tasks.is_empty());
+            // Reservations empty
+            let uniq = world.resource::<UniqueTargetRes>();
+            assert!(uniq.owners.is_empty());
+        }
     }
 }
