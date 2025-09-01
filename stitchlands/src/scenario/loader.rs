@@ -2,17 +2,23 @@ use std::fs;
 
 use bevy::prelude::*;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
-
-use crate::{snapshot::load_world_snapshot, CliOptions, RngResource};
+use simkit_core::{
+    grid::{index::TileMapIndex, GridConfig, TileId},
+    ids::{IdAllocator, IdIndex},
+};
 
 use super::model::ScenarioDef;
-use crate::components::{Item, Pawn, Zone};
-use crate::ids::{ItemId, PawnId, ZoneId};
-use crate::world::WorldGrid;
-use crate::tasks::{Designation, Needs, TaskRef};
-use simkit_core::grid::index::TileMapIndex;
-use simkit_core::grid::{GridConfig, TileId};
-use simkit_core::ids::{IdAllocator, IdIndex};
+use crate::{
+    model::{
+        components::{Item, Pawn, Zone},
+        ids::{ItemId, PawnId, ZoneId},
+    },
+    snapshot::load_world_snapshot,
+    tasks::{Designation, Needs, TaskRef},
+    world::WorldGrid,
+    CliOptions,
+    RngResource,
+};
 
 #[derive(Resource, Default, Debug, Clone, Copy)]
 pub struct LoadedScenarioMeta {

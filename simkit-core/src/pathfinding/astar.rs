@@ -1,5 +1,7 @@
-use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashMap};
+use std::{
+    cmp::Ordering,
+    collections::{BinaryHeap, HashMap},
+};
 
 use crate::grid::{Grid2D, GridConfig, TileId};
 

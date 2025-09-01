@@ -1,10 +1,11 @@
 pub mod journal;
 
+use std::{collections::VecDeque, sync::Arc};
+
 use bevy::prelude::*;
+pub use journal::{Journal, JournalConfig, JournalLine};
 
 use crate::{AppState, KitSystemSet, Playback, Tick, POD};
-pub use journal::{Journal, JournalConfig, JournalLine};
-use std::{collections::VecDeque, sync::Arc};
 
 pub trait Simulation: Sync + Send + 'static {
     type State: POD + Resource + Default;

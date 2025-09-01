@@ -4,7 +4,8 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use simkit_core::{
     simulation::{SimPlugin, Simulation},
-    KitCorePlugin, Tick,
+    KitCorePlugin,
+    Tick,
 };
 
 struct MySimulation;

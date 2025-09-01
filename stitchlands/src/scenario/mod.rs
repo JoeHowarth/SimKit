@@ -2,14 +2,21 @@ mod cleanup;
 mod loader;
 pub mod model;
 
-use crate::components::{Item, Pawn, Zone};
-use crate::ids::{ItemId, PawnId, ZoneId};
-use crate::{CliOptions, RunMode};
 use bevy::prelude::*;
-use simkit_core::ids::{IdAllocator, IdIndex};
-use simkit_core::AppState;
-
 pub use loader::LoadedScenarioMeta;
+use simkit_core::{
+    ids::{IdAllocator, IdIndex},
+    AppState,
+};
+
+use crate::{
+    model::{
+        components::{Item, Pawn, Zone},
+        ids::{ItemId, PawnId, ZoneId},
+    },
+    CliOptions,
+    RunMode,
+};
 
 pub struct ScenarioPlugin;
 

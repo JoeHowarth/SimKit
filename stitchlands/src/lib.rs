@@ -3,22 +3,27 @@
 
 use bevy::prelude::*;
 use rand::{rngs::SmallRng, SeedableRng};
-
-use crate::{
-    components::{Item, Pawn, Zone},
-    snapshot::{build_world_snapshot, stable_hash_json},
-};
 use simkit_core::{
     grid::{index::sync_tile_index, TileId},
-    AppState, KitSystemSet, Playback,
+    ids::IdAllocator,
+    AppState,
+    KitSystemSet,
+    Playback,
 };
 
-pub mod components;
-pub mod ids;
+use crate::{
+    model::{
+        components::{Item, Pawn, Zone},
+        ids::{self, TaskId},
+    },
+    snapshot::{build_world_snapshot, stable_hash_json},
+};
+
+pub mod model;
 pub mod scenario;
 pub mod snapshot;
-pub mod world;
 pub mod tasks;
+pub mod world;
 use crate::scenario::LoadedScenarioMeta;
 
 // Resources and markers
@@ -100,7 +105,7 @@ impl Plugin for StitchlandsCorePlugin {
             .init_resource::<tasks::TaskBoard>()
             .init_resource::<tasks::UniqueTargetRes>()
             .init_resource::<tasks::LogBuffer>()
-            .init_resource::<simkit_core::ids::IdAllocator<ids::TaskId>>()
+            .init_resource::<IdAllocator<TaskId>>()
             .add_plugins(crate::scenario::ScenarioPlugin)
             .add_event::<SnapshotSaveEvent>()
             // Chain our sub-sets inside KitSystemSet phases
@@ -207,7 +212,8 @@ fn headless_exit_after_ticks(
     }
     if let Some(limit) = cli.ticks {
         if (playback.tick.0 as u64) >= limit {
-            // Extract a baseline snapshot and print a stable hash for determinism testing
+            // Extract a baseline snapshot and print a stable hash for
+            // determinism testing
             let scenario_seed = scenario_meta.as_ref().and_then(|m| m.sim_seed);
             let pawns_vec: Vec<_> = pawn_q.iter().map(|(p, pos)| (*p, *pos)).collect();
             let items_vec: Vec<_> = item_q.iter().map(|(it, pos)| (it.clone(), *pos)).collect();

@@ -1,5 +1,6 @@
-use bevy::prelude::*;
 use std::{collections::HashMap, fmt::Debug, hash::Hash, marker::PhantomData};
+
+use bevy::prelude::*;
 
 // Typed ID newtypes used across crates. Keep minimal now; extend later.
 
@@ -15,7 +16,22 @@ pub trait HasSimId: Component {
 
 #[macro_export]
 macro_rules! impl_simid {
-    ($t:ty) => {
+    ($t:ident) => {
+        #[derive(
+            Debug,
+            Copy,
+            Clone,
+            Eq,
+            PartialEq,
+            PartialOrd,
+            Ord,
+            Hash,
+            Reflect,
+            Serialize,
+            Deserialize,
+        )]
+        pub struct $t(pub u64);
+
         impl SimId for $t {
             #[inline]
             fn from_u64(v: u64) -> Self {

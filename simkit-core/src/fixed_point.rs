@@ -5,9 +5,11 @@
 //! - Fast, deterministic, Eq + Ord based on raw bits
 
 #![allow(clippy::manual_range_contains)]
-use core::fmt;
-use core::iter::{Product, Sum};
-use core::ops::*;
+use core::{
+    fmt,
+    iter::{Product, Sum},
+    ops::*,
+};
 
 use bevy::reflect::Reflect;
 use serde::{Deserialize, Serialize};
@@ -85,7 +87,7 @@ impl Q40p24 {
     }
 }
 
-/* ===== Arithmetic (wrapping add/sub, rounded mul/div) ===== */
+// ===== Arithmetic (wrapping add/sub, rounded mul/div) =====
 
 impl Add for Q40p24 {
     type Output = Self;
@@ -177,7 +179,8 @@ impl DivAssign for Q40p24 {
     }
 }
 
-/// Remainder using integer semantics on raw storage (trunc toward zero division).
+/// Remainder using integer semantics on raw storage (trunc toward zero
+/// division).
 impl Rem for Q40p24 {
     type Output = Self;
     #[inline]
@@ -192,7 +195,7 @@ impl RemAssign for Q40p24 {
     }
 }
 
-/* ===== Iterator traits ===== */
+// ===== Iterator traits =====
 
 impl Sum for Q40p24 {
     #[inline]
@@ -215,7 +218,7 @@ impl Product for Q40p24 {
     }
 }
 
-/* ===== Conversions ===== */
+// ===== Conversions =====
 
 impl From<i8> for Q40p24 {
     #[inline]
@@ -313,7 +316,7 @@ impl From<Q40p24> for f64 {
     }
 }
 
-/* ===== Formatting ===== */
+// ===== Formatting =====
 
 impl fmt::Debug for Q40p24 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -351,7 +354,7 @@ impl fmt::Display for Q40p24 {
     }
 }
 
-/* ===== Convenience ops with integers ===== */
+// ===== Convenience ops with integers =====
 
 impl Add<i64> for Q40p24 {
     type Output = Self;
@@ -406,7 +409,7 @@ impl DivAssign<i64> for Q40p24 {
     }
 }
 
-/* ===== Minimal tests ===== */
+// ===== Minimal tests =====
 #[cfg(test)]
 mod tests {
     use super::Q40p24 as Q;

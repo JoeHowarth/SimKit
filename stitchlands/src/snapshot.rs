@@ -1,11 +1,11 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
-use simkit_core::grid::TileId;
-use simkit_core::ids::IdIndex;
+use simkit_core::{grid::TileId, ids::IdIndex, Playback};
 
-use crate::components::{Item, Pawn, Zone};
-use crate::ids::{ItemId, PawnId, ZoneId};
-use simkit_core::Playback;
+use crate::model::{
+    components::{Item, Pawn, Zone},
+    ids::{ItemId, PawnId, ZoneId},
+};
 
 pub fn stable_hash_json<T: Serialize>(value: &T) -> String {
     let json = serde_json::to_vec(value).expect("serialize snapshot");
@@ -132,11 +132,10 @@ pub fn load_world_snapshot(
 
 #[cfg(test)]
 mod tests {
-    use crate::components::{Item, Pawn};
+    use simkit_core::{grid::TileId, ids::IdIndex, Playback};
 
     use super::*;
-
-    use simkit_core::{grid::TileId, ids::IdIndex, Playback};
+    use crate::model::components::{Item, Pawn};
 
     #[derive(Resource)]
     struct TestSnap(WorldSnapshot);

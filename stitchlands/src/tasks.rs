@@ -29,17 +29,18 @@
 //!
 //! Needs-driven interrupts:
 //! - If a pawn is running Harvest and hunger/rest drop below LOW thresholds,
-//!   the job is preempted (task reset to Pending, reservation released), and
-//!   a needs task (EatAuto/SleepAuto) is ensured for that pawn.
-//!
-use bevy::prelude::*;
-use serde::{Deserialize, Serialize};
+//!   the job is preempted (task reset to Pending, reservation released), and a
+//!   needs task (EatAuto/SleepAuto) is ensured for that pawn.
 use std::collections::HashMap;
 
-use crate::components::Pawn;
-use crate::ids::{PawnId, TaskId};
-use simkit_core::grid::TileId;
-use simkit_core::ids::IdAllocator;
+use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
+use simkit_core::{grid::TileId, ids::IdAllocator};
+
+use crate::model::{
+    components::Pawn,
+    ids::{PawnId, TaskId},
+};
 
 // ---------- Constants
 pub const PRIO_HARVEST: i32 = 3;
@@ -67,7 +68,10 @@ pub struct Needs {
 
 impl Default for Needs {
     fn default() -> Self {
-        Self { hunger: 1.0, rest: 1.0 }
+        Self {
+            hunger: 1.0,
+            rest: 1.0,
+        }
     }
 }
 
@@ -184,7 +188,8 @@ impl UniqueTargetRes {
 
 // ---------- Systems (PreStep)
 
-// For each (Designation::Harvest, TaskRef(None)) create a Harvest task and set TaskRef.
+// For each (Designation::Harvest, TaskRef(None)) create a Harvest task and set
+// TaskRef.
 pub fn designation_spawner(
     mut q: Query<(&Designation, &mut TaskRef), With<crate::WorldTag>>,
     mut board: ResMut<TaskBoard>,
@@ -192,30 +197,28 @@ pub fn designation_spawner(
 ) {
     for (d, mut tref) in q.iter_mut() {
         match d {
-            Designation::Harvest(tile) => {
-                match tref.0 {
-                    None => {
-                        let id = board.add_task(
+            Designation::Harvest(tile) => match tref.0 {
+                None => {
+                    let id = board.add_task(
+                        &mut task_alloc,
+                        TaskKind::Harvest { tile: *tile },
+                        PRIO_HARVEST,
+                        None,
+                    );
+                    tref.0 = Some(id);
+                }
+                Some(id) => {
+                    if !board.contains(id) {
+                        let new_id = board.add_task(
                             &mut task_alloc,
                             TaskKind::Harvest { tile: *tile },
                             PRIO_HARVEST,
                             None,
                         );
-                        tref.0 = Some(id);
-                    }
-                    Some(id) => {
-                        if !board.contains(id) {
-                            let new_id = board.add_task(
-                                &mut task_alloc,
-                                TaskKind::Harvest { tile: *tile },
-                                PRIO_HARVEST,
-                                None,
-                            );
-                            tref.0 = Some(new_id);
-                        }
+                        tref.0 = Some(new_id);
                     }
                 }
-            }
+            },
         }
     }
 }
@@ -234,11 +237,10 @@ pub fn needs_daemon_emit(
 
         // Eat task
         if needs.hunger < EAT_LOW {
-            let exists = board
-                .tasks
-                .iter()
-                .any(|t| matches!(t.kind, TaskKind::EatAuto { pawn: p } if p == pawn.id)
-                    && !matches!(t.status, TaskStatus::Done | TaskStatus::Cancelled));
+            let exists = board.tasks.iter().any(|t| {
+                matches!(t.kind, TaskKind::EatAuto { pawn: p } if p == pawn.id)
+                    && !matches!(t.status, TaskStatus::Done | TaskStatus::Cancelled)
+            });
             if !exists {
                 board.add_task(
                     &mut task_alloc,
@@ -251,11 +253,10 @@ pub fn needs_daemon_emit(
 
         // Sleep task
         if needs.rest < SLEEP_LOW {
-            let exists = board
-                .tasks
-                .iter()
-                .any(|t| matches!(t.kind, TaskKind::SleepAuto { pawn: p } if p == pawn.id)
-                    && !matches!(t.status, TaskStatus::Done | TaskStatus::Cancelled));
+            let exists = board.tasks.iter().any(|t| {
+                matches!(t.kind, TaskKind::SleepAuto { pawn: p } if p == pawn.id)
+                    && !matches!(t.status, TaskStatus::Done | TaskStatus::Cancelled)
+            });
             if !exists {
                 board.add_task(
                     &mut task_alloc,
@@ -289,8 +290,12 @@ pub enum JobDriver {
         state: HarvestState,
         reserved: Option<UniqueTargetKey>,
     },
-    EatAuto { ticks_left: u32 },
-    SleepAuto { ticks_left: u32 },
+    EatAuto {
+        ticks_left: u32,
+    },
+    SleepAuto {
+        ticks_left: u32,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Reflect)]
@@ -343,7 +348,12 @@ pub fn hard_need_interrupts(
             continue;
         }
         // If current job is Harvest, preempt
-        if let JobDriver::Harvest { target: _, state: _, reserved } = job.driver {
+        if let JobDriver::Harvest {
+            target: _,
+            state: _,
+            reserved,
+        } = job.driver
+        {
             if let Some(t) = board.get_mut(job.task) {
                 t.status = TaskStatus::Pending;
             }
@@ -357,7 +367,9 @@ pub fn hard_need_interrupts(
             let kind = if let Some(t) = board.get_mut(job.task) {
                 t.kind
             } else {
-                TaskKind::Harvest { tile: TileId::new(0, 0) }
+                TaskKind::Harvest {
+                    tile: TileId::new(0, 0),
+                }
             };
             let reason = if eat_low { "Eat" } else { "Sleep" };
             logs.events.push(LogEvent::Preempt {
@@ -372,11 +384,10 @@ pub fn hard_need_interrupts(
 
             // Ensure a needs task exists (scan board)
             if eat_low {
-                let exists = board
-                    .tasks
-                    .iter()
-                    .any(|t| matches!(t.kind, TaskKind::EatAuto { pawn: p } if p == pawn.id)
-                        && !matches!(t.status, TaskStatus::Done | TaskStatus::Cancelled));
+                let exists = board.tasks.iter().any(|t| {
+                    matches!(t.kind, TaskKind::EatAuto { pawn: p } if p == pawn.id)
+                        && !matches!(t.status, TaskStatus::Done | TaskStatus::Cancelled)
+                });
                 if !exists {
                     board.add_task(
                         &mut task_alloc,
@@ -387,11 +398,10 @@ pub fn hard_need_interrupts(
                 }
             }
             if sleep_low {
-                let exists = board
-                    .tasks
-                    .iter()
-                    .any(|t| matches!(t.kind, TaskKind::SleepAuto { pawn: p } if p == pawn.id)
-                        && !matches!(t.status, TaskStatus::Done | TaskStatus::Cancelled));
+                let exists = board.tasks.iter().any(|t| {
+                    matches!(t.kind, TaskKind::SleepAuto { pawn: p } if p == pawn.id)
+                        && !matches!(t.status, TaskStatus::Done | TaskStatus::Cancelled)
+                });
                 if !exists {
                     board.add_task(
                         &mut task_alloc,
@@ -412,10 +422,8 @@ pub fn scheduler_assign(
     mut q: Query<(Entity, &Pawn, &TileId), Without<Job>>,
 ) {
     // Iterate pawns in ascending PawnId
-    let mut pawns: Vec<(Entity, PawnId, TileId)> = q
-        .iter_mut()
-        .map(|(e, p, pos)| (e, p.id, *pos))
-        .collect();
+    let mut pawns: Vec<(Entity, PawnId, TileId)> =
+        q.iter_mut().map(|(e, p, pos)| (e, p.id, *pos)).collect();
     pawns.sort_by_key(|(_, pid, _)| *pid);
 
     for (e, pid, pos) in pawns.into_iter() {
@@ -463,8 +471,12 @@ pub fn scheduler_assign(
                     state: HarvestState::ReserveTarget,
                     reserved: None,
                 },
-                TaskKind::EatAuto { .. } => JobDriver::EatAuto { ticks_left: EAT_TICKS },
-                TaskKind::SleepAuto { .. } => JobDriver::SleepAuto { ticks_left: SLEEP_TICKS },
+                TaskKind::EatAuto { .. } => JobDriver::EatAuto {
+                    ticks_left: EAT_TICKS,
+                },
+                TaskKind::SleepAuto { .. } => JobDriver::SleepAuto {
+                    ticks_left: SLEEP_TICKS,
+                },
             };
             commands.entity(e).insert(Job { task: id, driver });
             logs.events.push(LogEvent::Assign {
@@ -531,7 +543,9 @@ pub fn job_tick(
                             *ticks_left -= 1;
                         }
                         if *ticks_left == 0 {
-                            *state = HarvestState::WorkCountdown { ticks_left: WORK_TICKS };
+                            *state = HarvestState::WorkCountdown {
+                                ticks_left: WORK_TICKS,
+                            };
                         }
                     }
                     HarvestState::WorkCountdown { ref mut ticks_left } => {
@@ -545,7 +559,8 @@ pub fn job_tick(
                             if let Some(key) = *reserved {
                                 uniq.release(key, task_id);
                             }
-                            // Despawn designation entity for this task if exists
+                            // Despawn designation entity for this task if
+                            // exists
                             if let Some((de, _, _)) = designations
                                 .iter_mut()
                                 .find(|(_, _d, tr)| tr.0 == Some(task_id))
@@ -580,10 +595,7 @@ pub fn release_stale_reservations(board: Res<TaskBoard>, mut uniq: ResMut<Unique
     }
 }
 
-pub fn print_tick_logs(
-    mut logs: ResMut<LogBuffer>,
-    playback: Res<simkit_core::Playback>,
-) {
+pub fn print_tick_logs(mut logs: ResMut<LogBuffer>, playback: Res<simkit_core::Playback>) {
     if logs.events.is_empty() {
         return;
     }
@@ -591,19 +603,55 @@ pub fn print_tick_logs(
     // Sort deterministically by (pawn_id, task_id, variant)
     logs.events.sort_by(|a, b| match (a, b) {
         (
-            LogEvent::Assign { pawn: pa, task: ta, .. },
-            LogEvent::Assign { pawn: pb, task: tb, .. },
+            LogEvent::Assign {
+                pawn: pa, task: ta, ..
+            },
+            LogEvent::Assign {
+                pawn: pb, task: tb, ..
+            },
         ) => (pa, ta).cmp(&(pb, tb)),
         (
-            LogEvent::Preempt { pawn: pa, from_task: ta, .. },
-            LogEvent::Preempt { pawn: pb, from_task: tb, .. },
+            LogEvent::Preempt {
+                pawn: pa,
+                from_task: ta,
+                ..
+            },
+            LogEvent::Preempt {
+                pawn: pb,
+                from_task: tb,
+                ..
+            },
         ) => (pa, ta).cmp(&(pb, tb)),
-        (LogEvent::Assign { pawn: pa, task: ta, .. }, LogEvent::Preempt { pawn: pb, from_task: tb, .. }) => (pa, ta).cmp(&(pb, tb)),
-        (LogEvent::Preempt { pawn: pa, from_task: ta, .. }, LogEvent::Assign { pawn: pb, task: tb, .. }) => (pa, ta).cmp(&(pb, tb)),
+        (
+            LogEvent::Assign {
+                pawn: pa, task: ta, ..
+            },
+            LogEvent::Preempt {
+                pawn: pb,
+                from_task: tb,
+                ..
+            },
+        ) => (pa, ta).cmp(&(pb, tb)),
+        (
+            LogEvent::Preempt {
+                pawn: pa,
+                from_task: ta,
+                ..
+            },
+            LogEvent::Assign {
+                pawn: pb, task: tb, ..
+            },
+        ) => (pa, ta).cmp(&(pb, tb)),
     });
     for ev in logs.events.drain(..) {
         match ev {
-            LogEvent::Assign { pawn, task, prio, dist, kind } => {
+            LogEvent::Assign {
+                pawn,
+                task,
+                prio,
+                dist,
+                kind,
+            } => {
                 let kind_s = match kind {
                     TaskKind::Harvest { .. } => "Harvest",
                     TaskKind::EatAuto { .. } => "EatAuto",
@@ -614,7 +662,13 @@ pub fn print_tick_logs(
                     tick, pawn.0, task.0, kind_s, prio, dist, prio, dist, task.0
                 );
             }
-            LogEvent::Preempt { pawn, from_task, kind, reason, released } => {
+            LogEvent::Preempt {
+                pawn,
+                from_task,
+                kind,
+                reason,
+                released,
+            } => {
                 let kind_s = match kind {
                     TaskKind::Harvest { .. } => "Harvest",
                     TaskKind::EatAuto { .. } => "EatAuto",
@@ -622,7 +676,9 @@ pub fn print_tick_logs(
                 };
                 let rel_s = match released {
                     None => "None".to_string(),
-                    Some(UniqueTargetKey::Tile(t)) => format!("Tile({}, {})", t.x, t.y),
+                    Some(UniqueTargetKey::Tile(t)) => {
+                        format!("Tile({}, {})", t.x, t.y)
+                    }
                 };
                 println!(
                     "PREEMPT tick={} pawn={} from_task={}/{} reason={} released={}",
@@ -635,9 +691,10 @@ pub fn print_tick_logs(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use bevy::prelude::*;
     use simkit_core::ids::IdAllocator;
+
+    use super::*;
 
     #[test]
     fn unique_target_res_basic() {
@@ -690,7 +747,8 @@ mod tests {
             assert_eq!(board.tasks.len(), 1);
         }
 
-        // Simulate missing task: clear board but keep TaskRef(Some(id)) on entity
+        // Simulate missing task: clear board but keep TaskRef(Some(id)) on
+        // entity
         app.world_mut().resource_mut::<TaskBoard>().tasks.clear();
         app.update();
         app.update();
@@ -711,7 +769,10 @@ mod tests {
 
         // Pawn below hunger threshold
         let pawn = Pawn { id: PawnId(1000) };
-        let needs = Needs { hunger: 0.2, rest: 0.9 };
+        let needs = Needs {
+            hunger: 0.2,
+            rest: 0.9,
+        };
         app.world_mut().spawn((pawn, needs));
 
         app.update();
@@ -751,11 +812,28 @@ mod tests {
         app.world_mut().spawn((pawn, pos));
 
         // Two equal tasks at same distance and priority
-        let mut alloc = app.world_mut().resource_mut::<IdAllocator<TaskId>>().clone();
+        let mut alloc = app
+            .world_mut()
+            .resource_mut::<IdAllocator<TaskId>>()
+            .clone();
         {
             let mut board = app.world_mut().resource_mut::<TaskBoard>();
-            let id1 = board.add_task(&mut alloc, TaskKind::Harvest { tile: TileId::new(1, 0) }, PRIO_HARVEST, None);
-            let id2 = board.add_task(&mut alloc, TaskKind::Harvest { tile: TileId::new(1, 0) }, PRIO_HARVEST, None);
+            let id1 = board.add_task(
+                &mut alloc,
+                TaskKind::Harvest {
+                    tile: TileId::new(1, 0),
+                },
+                PRIO_HARVEST,
+                None,
+            );
+            let id2 = board.add_task(
+                &mut alloc,
+                TaskKind::Harvest {
+                    tile: TileId::new(1, 0),
+                },
+                PRIO_HARVEST,
+                None,
+            );
             // Write back allocator (simulate the resource advanced by two)
             *app.world_mut().resource_mut::<IdAllocator<TaskId>>() = alloc;
             // Ensure lower id will win
@@ -792,7 +870,10 @@ mod tests {
 
         // Prepare a running harvest task
         let tile = TileId::new(5, 5);
-        let mut alloc = app.world_mut().resource_mut::<IdAllocator<TaskId>>().clone();
+        let mut alloc = app
+            .world_mut()
+            .resource_mut::<IdAllocator<TaskId>>()
+            .clone();
         let task_id = {
             let mut board = app.world_mut().resource_mut::<TaskBoard>();
             let id = board.add_task(&mut alloc, TaskKind::Harvest { tile }, PRIO_HARVEST, None);
@@ -809,7 +890,10 @@ mod tests {
 
         // Spawn pawn with Job(Harvest) and low hunger
         let pawn = Pawn { id: PawnId(2000) };
-        let needs = Needs { hunger: 0.1, rest: 0.9 };
+        let needs = Needs {
+            hunger: 0.1,
+            rest: 0.9,
+        };
         let job = Job {
             task: task_id,
             driver: JobDriver::Harvest {
@@ -822,7 +906,8 @@ mod tests {
 
         app.update();
 
-        // Verify job removed, task Pending, reservation released, EatAuto emitted, and a preempt log exists
+        // Verify job removed, task Pending, reservation released, EatAuto
+        // emitted, and a preempt log exists
         {
             let world = app.world_mut();
             let mut q = world.query::<&Job>();
@@ -832,7 +917,10 @@ mod tests {
             assert_eq!(t.status, TaskStatus::Pending);
             let uniq = world.resource::<UniqueTargetRes>();
             assert!(!uniq.is_owner(UniqueTargetKey::Tile(tile), task_id));
-            assert!(board.tasks.iter().any(|t| matches!(t.kind, TaskKind::EatAuto { pawn: p } if p == PawnId(2000))));
+            assert!(board
+                .tasks
+                .iter()
+                .any(|t| matches!(t.kind, TaskKind::EatAuto { pawn: p } if p == PawnId(2000))));
             let logs = world.resource::<LogBuffer>();
             assert!(matches!(logs.events.last(), Some(LogEvent::Preempt { .. })));
         }
@@ -858,7 +946,10 @@ mod tests {
             }],
         });
         let pawn = Pawn { id: PawnId(3000) };
-        let needs = Needs { hunger: 1.0, rest: 1.0 };
+        let needs = Needs {
+            hunger: 1.0,
+            rest: 1.0,
+        };
         let pos = TileId::new(0, 0);
         let job = Job {
             task: task_id,
@@ -880,7 +971,11 @@ mod tests {
             assert_eq!(v.len(), 1);
             let (job, pos) = v[0];
             match job.driver {
-                JobDriver::Harvest { target, state, reserved } => {
+                JobDriver::Harvest {
+                    target,
+                    state,
+                    reserved,
+                } => {
                     assert_eq!(target, tile);
                     assert!(matches!(state, HarvestState::TravelCountdown { .. }));
                     assert_eq!(reserved, Some(UniqueTargetKey::Tile(tile)));
@@ -902,7 +997,8 @@ mod tests {
         app.insert_resource(TaskBoard::default())
             .insert_resource({
                 let mut res = UniqueTargetRes::default();
-                res.owners.insert(UniqueTargetKey::Tile(TileId::new(1, 1)), TaskId(9999));
+                res.owners
+                    .insert(UniqueTargetKey::Tile(TileId::new(1, 1)), TaskId(9999));
                 res
             })
             .add_systems(Startup, release_stale_reservations);
@@ -939,8 +1035,12 @@ mod tests {
         // World: one pawn near a Harvest designation
         let pawn = Pawn { id: PawnId(4000) };
         let pawn_pos = TileId::new(0, 0);
-        let needs = Needs { hunger: 1.0, rest: 1.0 };
-        app.world_mut().spawn((crate::WorldTag, pawn, needs, pawn_pos));
+        let needs = Needs {
+            hunger: 1.0,
+            rest: 1.0,
+        };
+        app.world_mut()
+            .spawn((crate::WorldTag, pawn, needs, pawn_pos));
 
         let target = TileId::new(2, 3); // manhattan = 5
         app.world_mut().spawn((
@@ -950,7 +1050,8 @@ mod tests {
             TaskRef(None),
         ));
 
-        // Steps required: 1 (assign+reserve) + 5 (travel) + 5 (work) + 1 (prune)
+        // Steps required: 1 (assign+reserve) + 5 (travel) + 5 (work) + 1
+        // (prune)
         let steps = 1 + manhattan(pawn_pos, target) as usize + WORK_TICKS as usize + 1;
         for _ in 0..steps {
             app.update();

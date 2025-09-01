@@ -1,6 +1,8 @@
-use crate::{fixed_point::FP64, KitCommand, KitCommandType, Tick};
-use bevy::prelude::*;
 use std::time::Duration;
+
+use bevy::prelude::*;
+
+use crate::{fixed_point::FP64, KitCommand, KitCommandType, Tick};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Resource)]
 pub struct Playback {

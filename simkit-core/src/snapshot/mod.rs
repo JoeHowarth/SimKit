@@ -20,8 +20,9 @@ pub fn fnv1a(bytes: &[u8]) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde::Serialize;
+
+    use super::*;
 
     #[derive(Serialize)]
     struct Foo {

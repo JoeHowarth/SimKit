@@ -1,6 +1,9 @@
-use crate::grid::{Grid2D, GridConfig, TileId};
-use crate::ids::{HasSimId, SimId};
 use bevy::prelude::*;
+
+use crate::{
+    grid::{Grid2D, GridConfig, TileId},
+    ids::{HasSimId, SimId},
+};
 
 #[derive(Resource, Debug, Clone)]
 pub struct TileMapIndex<T: SimId>(pub Grid2D<Option<T>>);
@@ -30,7 +33,8 @@ impl<T: SimId> TileMapIndex<T> {
     }
 
     #[inline]
-    /// Set an ID at a tile, clearing the old tile and updating the reference if provided.
+    /// Set an ID at a tile, clearing the old tile and updating the reference if
+    /// provided.
     pub fn move_id(&mut self, from: Option<&mut TileId>, to: TileId, id: T) {
         if let Some(f) = from {
             self.clear(*f);

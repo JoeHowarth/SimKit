@@ -1,8 +1,8 @@
 use bevy::prelude::*;
 use simkit_core::{KitCoreHeadlessPlugin, KitCorePlugin};
+use stitchlands::{CliOptions, RunMode, StitchlandsCorePlugin};
 
 use crate::cli::parse_cli;
-use stitchlands::{CliOptions, RunMode, StitchlandsCorePlugin};
 
 pub fn camera_setup(mut commands: Commands) {
     commands.spawn((

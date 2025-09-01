@@ -1,11 +1,11 @@
-use crate::ids::{ItemId, PawnId, ZoneId};
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
-use simkit_core::grid::TileId;
-use simkit_core::ids::HasSimId;
-use simkit_core::impl_hassimid;
+use simkit_core::{grid::TileId, ids::HasSimId, impl_hassimid};
+
+use crate::model::ids::{FixtureId, ItemId, PawnId, ZoneId};
 
 #[derive(Component, Debug, Clone, Eq, PartialEq, Copy, Serialize, Deserialize)]
+#[require(TileId)]
 pub struct Pawn {
     pub id: PawnId,
 }
@@ -24,6 +24,10 @@ pub struct Zone {
     pub kind: String,
     pub rect: (TileId, TileId),
     pub filters: Vec<String>,
+}
+
+pub struct Fixture {
+    pub id: FixtureId,
 }
 
 impl_hassimid!(Pawn, PawnId);
