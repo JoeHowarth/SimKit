@@ -1,4 +1,4 @@
-max_width = 100
+max_width = 80
 group_imports = "StdExternalCrate"
 imports_granularity = "Crate"
 imports_layout = "HorizontalVertical"

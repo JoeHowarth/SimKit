@@ -1,8 +1,19 @@
 use std::str::FromStr;
 
-use bevy::prelude::*;
+use bevy::{
+    ecs::{
+        query::{QueryData, ROQueryItem},
+        system::SystemParam,
+    },
+    log::tracing::span::Id,
+    prelude::*,
+};
 use serde::{Deserialize, Serialize};
-use simkit_core::{fixed_point::Q40p24, ids::HasSimId, impl_hassimid};
+use simkit_core::{
+    fixed_point::Q40p24,
+    ids::{HasSimId, IdIndex, SimId},
+    impl_hassimid,
+};
 
 use crate::{
     model::ids::{FixtureId, ItemId, PawnId},
@@ -60,6 +71,77 @@ pub struct CarriedBy(pub PawnId);
 
 #[derive(Component, Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct InFixture(pub FixtureId);
+
+#[derive(SystemParam)]
+pub struct IdQuery<
+    'w,
+    's,
+    C: HasSimId,
+    D: bevy::ecs::query::QueryData + 'static,
+> {
+    pub query: Query<'w, 's, (&'static C, D)>,
+    index: Res<'w, IdIndex<<C as HasSimId>::Id>>,
+}
+
+impl<'w, 's: 'w, C, D> IdQuery<'w, 's, C, D>
+where
+    D: QueryData,
+    C: HasSimId,
+{
+    pub fn get(
+        &'w self,
+        id: &<C as HasSimId>::Id,
+    ) -> (&'w C, ROQueryItem<'w, D>) {
+        let entity = self.index.get(id);
+        self.query.get(entity).unwrap()
+    }
+}
+
+pub type FixtureQuery<'w, 's, D> = IdQuery<'w, 's, Fixture, D>;
+pub type ItemQuery<'w, 's, D> = IdQuery<'w, 's, Item, D>;
+pub type PawnQuery<'w, 's, D> = IdQuery<'w, 's, Pawn, D>;
+
+pub trait WorldExt {
+    fn get_simid<Id: SimId>(&self, id: &Id) -> (&Id::Type, Entity);
+    fn get_comp_simid<C: Component, Id: SimId>(
+        &self,
+        id: &Id,
+    ) -> (&Id::Type, Entity, &C);
+}
+
+impl WorldExt for World {
+    fn get_simid<Id: SimId>(&self, id: &Id) -> (&Id::Type, Entity) {
+        let x = self.resource::<IdIndex<Id>>();
+        let e = x.get(id);
+        let entity = self.get::<Id::Type>(e);
+        (entity.unwrap(), e)
+    }
+
+    fn get_comp_simid<C: Component, Id: SimId>(
+        &self,
+        id: &Id,
+    ) -> (&Id::Type, Entity, &C) {
+        let (entity, e) = self.get_simid(id);
+        let component = self.get::<C>(e).unwrap();
+        (entity, e, component)
+    }
+}
+
+// #[derive(SystemParam)]
+// pub struct FixtureQuery<'w, 's, D: bevy::ecs::query::QueryData + 'static> {
+//     pub query: Query<'w, 's, (&'static Fixture, D)>,
+//     index: Res<'w, IdIndex<FixtureId>>,
+// }
+
+// impl<'w, 's: 'w, D> FixtureQuery<'w, 's, D>
+// where
+//     D: QueryData,
+// {
+//     pub fn get(&'w self, id: &FixtureId) -> (&'w Fixture, ROQueryItem<'w, D>)
+// {         let entity = self.index.get(id);
+//         self.query.get(entity).unwrap()
+//     }
+// }
 
 /// Fixtures
 /// Required components: WorldTag, TileId

@@ -10,6 +10,7 @@ use bevy::prelude::*;
 // Typed ID newtypes used across crates. Keep minimal now; extend later.
 
 pub trait SimId: Debug + Copy + Eq + Ord + PartialOrd + Hash + Send + Sync + 'static {
+    type Type: HasSimId;
     fn from_u64(v: u64) -> Self;
     fn to_u64(self) -> u64;
 }
@@ -21,7 +22,7 @@ pub trait HasSimId: Component {
 
 #[macro_export]
 macro_rules! impl_simid {
-    ($t:ident) => {
+    ($t:ident, $ty:ty) => {
         #[derive(
             Debug,
             Copy,
@@ -38,6 +39,8 @@ macro_rules! impl_simid {
         pub struct $t(pub u64);
 
         impl SimId for $t {
+            type Type = $ty;
+
             #[inline]
             fn from_u64(v: u64) -> Self {
                 Self(v)
@@ -53,7 +56,7 @@ macro_rules! impl_simid {
 #[macro_export]
 macro_rules! impl_hassimid {
     ($t:ty, $id:ty) => {
-        impl HasSimId for $t {
+        impl simkit_core::ids::HasSimId for $t {
             type Id = $id;
 
             #[inline]

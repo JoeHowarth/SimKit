@@ -8,21 +8,31 @@ use simkit_core::{
     fixed_point::Q40p24,
     grid::{index::TileMapIndex, TileId},
     ids::{IdIndex, SimId},
+    impl_hassimid,
 };
 
 use crate::{
     model::{components::*, ids::*},
-    toils::ToilKind,
+    toils::{closer_option_item_locator, ItemLocator, ToilKind},
 };
 
+struct TaskPlugin;
+
+impl Plugin for TaskPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<TaskBoard>()
+            .add_systems(FixedUpdate, schedule_pawns);
+    }
+}
+
 #[derive(PartialEq, Eq, Hash)]
-enum TaskSpecKind {
+pub enum TaskSpecKind {
     Harvest,
     Plant,
 }
 
 impl TaskSpec {
-    fn kind(&self) -> TaskSpecKind {
+    pub fn kind(&self) -> TaskSpecKind {
         match self {
             TaskSpec::Harvest(_) => TaskSpecKind::Harvest,
             TaskSpec::Plant(_, _) => TaskSpecKind::Plant,
@@ -30,16 +40,20 @@ impl TaskSpec {
     }
 }
 
-enum TaskSpec {
+pub enum TaskSpec {
     Harvest(FixtureId),
     Plant(TileId, ItemKind),
 }
 
-struct Task {
-    id: TaskId,
-    spec: TaskSpec,
-    status: TaskStatus,
+// TODO: should this be a component?
+#[derive(Component)]
+pub struct Task {
+    pub id: TaskId,
+    pub spec: TaskSpec,
+    pub status: TaskStatus,
 }
+
+impl_hassimid!(Task, TaskId);
 
 #[derive(Component)]
 struct WorkPriority(pub Vec<TaskSpecKind>);
@@ -47,11 +61,12 @@ struct WorkPriority(pub Vec<TaskSpecKind>);
 #[derive(Component)]
 struct Job {
     kind: JobKind,
+    current_toil: Option<ToilKind>,
     plan: VecDeque<ToilKind>,
 }
 
 #[derive(PartialEq, Eq, Clone, Copy)]
-enum JobKind {
+pub enum JobKind {
     Task(TaskId),
     Sleep,
     Eat,
@@ -59,7 +74,7 @@ enum JobKind {
 }
 
 #[derive(PartialEq, Eq, Clone, Copy)]
-enum TaskStatus {
+pub enum TaskStatus {
     Pending,
     Assigned(PawnId),
     Done,
@@ -123,7 +138,10 @@ impl TaskBoard {
             .insert(id);
     }
 
-    fn pending_tasks_by_kind(&self, kind: &TaskSpecKind) -> impl Iterator<Item = &Task> {
+    fn pending_tasks_by_kind(
+        &self,
+        kind: &TaskSpecKind,
+    ) -> impl Iterator<Item = &Task> {
         self.pending_tasks
             .get(kind)
             .unwrap()
@@ -135,10 +153,8 @@ impl TaskBoard {
 fn schedule_pawns(
     mut pawns: Query<(&Pawn, &TileId, &WorkPriority, &mut Job)>,
     mut task_board: ResMut<TaskBoard>,
-    fixtures: Query<(&Fixture, &TileId)>,
-    items: Query<(&Item, &TileId)>,
-    fixture_index: Res<IdIndex<FixtureId>>,
-    item_index: Res<IdIndex<ItemId>>,
+    fixtures: FixtureQuery<&TileId>,
+    items: ItemQuery<&TileId>,
 ) {
     // TODO: use a stable ordering of pawns
 
@@ -146,13 +162,15 @@ fn schedule_pawns(
         // If job is running, check if it should be preempted
         if JobKind::None != job.kind {
             if let Some(prempt) = should_preempt(pawn, job.kind) {
-                // If job should be preempted and it's not the same job, preempt it
+                // If job should be preempted and it's not the same job, preempt
+                // it
                 if let JobKind::Task(task_id) = &job.kind {
                     task_board.return_to_pending(*task_id);
                 }
                 *job = Job {
                     kind: prempt,
                     plan: VecDeque::new(),
+                    current_toil: None,
                 };
             }
             continue;
@@ -166,8 +184,6 @@ fn schedule_pawns(
             work_priority,
             &fixtures,
             &items,
-            &fixture_index,
-            &item_index,
         );
 
         if let JobKind::Task(task_id) = &kind {
@@ -177,6 +193,7 @@ fn schedule_pawns(
         *job = Job {
             kind,
             plan: VecDeque::new(),
+            current_toil: None,
         };
     }
 }
@@ -221,10 +238,8 @@ fn choose_next_job(
     pawn: &Pawn,
     pos: &TileId,
     work_priority: &WorkPriority,
-    fixtures: &Query<(&Fixture, &TileId)>,
-    items: &Query<(&Item, &TileId)>,
-    fixture_index: &IdIndex<FixtureId>,
-    item_index: &IdIndex<ItemId>,
+    fixtures: &FixtureQuery<&TileId>,
+    items: &ItemQuery<&TileId>,
 ) -> JobKind {
     // Check if needs are urgent
     // Sleep and eat threshold are lower than when we have a job
@@ -241,11 +256,12 @@ fn choose_next_job(
             .pending_tasks_by_kind(kind)
             .filter_map(|task| {
                 let priority =
-                    task.spec
-                        .priority(pawn, pos, fixtures, items, fixture_index, item_index)?;
+                    task.spec.priority(pawn, pos, fixtures, items)?;
                 Some((priority, task))
             })
-            .max_by_key(|(priority, task)| (*priority, -(task.id.to_u64() as i64)));
+            .max_by_key(|(priority, task)| {
+                (*priority, -(task.id.to_u64() as i64))
+            });
 
         // If a task is found, return it
         if let Some((_, task)) = max {
@@ -261,29 +277,32 @@ impl TaskSpec {
         &self,
         pawn: &Pawn,
         pos: &TileId,
-        fixtures: &Query<(&Fixture, &TileId)>,
-        items: &Query<(&Item, &TileId)>,
-        fixture_index: &IdIndex<FixtureId>,
-        _item_index: &IdIndex<ItemId>,
+        fixtures: &FixtureQuery<&TileId>,
+        items: &ItemQuery<&TileId>,
     ) -> Option<Q40p24> {
         match self {
-            TaskSpec::Harvest(_) => self.harvest_priority(pos, fixtures, fixture_index),
-            TaskSpec::Plant(_, _) => self.plant_priority(pawn, pos, items, fixtures),
+            TaskSpec::Harvest(_) => self.harvest_priority(pos, fixtures),
+            TaskSpec::Plant(_, _) => {
+                self.plant_priority(pawn, pos, items, fixtures)
+            }
         }
     }
 
     fn harvest_priority(
         &self,
         pos: &TileId,
-        fixtures: &Query<(&Fixture, &TileId)>,
-        fixture_index: &IdIndex<FixtureId>,
+        fixtures: &FixtureQuery<&TileId>,
     ) -> Option<Q40p24> {
         let TaskSpec::Harvest(fixture_id) = self else {
             panic!("Harvest priority called for non-harvest task");
         };
 
-        let (fixture, fixture_pos) = fixtures.get(fixture_index.get(fixture_id)).unwrap();
-        if fixture.harvest_countdown.is_none() || fixture.harvest_countdown.unwrap() > 0 {
+        let (fixture, fixture_pos) = fixtures.get(fixture_id);
+        // let (fixture, fixture_pos) =
+        // fixtures.get(fixture_index.get(fixture_id)).unwrap();
+        if fixture.harvest_countdown.is_none()
+            || fixture.harvest_countdown.unwrap() > 0
+        {
             return None;
         }
 
@@ -295,8 +314,8 @@ impl TaskSpec {
         &self,
         pawn: &Pawn,
         pawn_pos: &TileId,
-        items: &Query<(&Item, &TileId)>,
-        fixtures: &Query<(&Fixture, &TileId)>,
+        items: &ItemQuery<&TileId>,
+        fixtures: &FixtureQuery<&TileId>,
     ) -> Option<Q40p24> {
         let TaskSpec::Plant(fixture_pos, item_kind) = self else {
             panic!("Plant priority called for non-plant task");
@@ -315,38 +334,18 @@ pub fn neartest_item_position(
     pawn: &Pawn,
     pawn_pos: &TileId,
     item_kind: &ItemKind,
-    items: &Query<(&Item, &TileId)>,
-    fixtures: &Query<(&Fixture, &TileId)>,
+    items: &ItemQuery<&TileId>,
+    fixtures: &FixtureQuery<&TileId>,
 ) -> Option<(TileId, ItemId)> {
-    if let Some(item_id) = item_in_inventory(item_kind, &pawn.inventory) {
-        return Some((*pawn_pos, item_id));
+    if let Some(locator) = item_in_inventory(item_kind, &pawn.inventory) {
+        return Some((*pawn_pos, locator.item_id()));
     }
 
-    let on_ground = nearest_item_on_ground(item_kind, pawn_pos, items)
-        .map(|(item_id, pos, d)| (item_id, pos, d));
-    let fixture = nearest_fixture_with_item(item_kind, pawn_pos, fixtures)
-        .map(|(_, pos, item_id, d)| (item_id, pos, d));
+    let on_ground = nearest_item_on_ground(item_kind, pawn_pos, items);
+    let fixture = nearest_fixture_with_item(item_kind, pawn_pos, fixtures);
 
-    match (on_ground, fixture) {
-        (
-            Some((on_ground_item_id, item_pos, on_ground_d)),
-            Some((fixture_item_id, fixture_pos, fixture_d)),
-        ) => {
-            if on_ground_d < fixture_d {
-                return Some((item_pos, on_ground_item_id));
-            }
-            return Some((fixture_pos, fixture_item_id));
-        }
-        (Some((item_id, item_pos, _)), None) => {
-            return Some((item_pos, item_id));
-        }
-        (None, Some((item_id, fixture_pos, _))) => {
-            return Some((fixture_pos, item_id));
-        }
-        (None, None) => {
-            return None;
-        }
-    }
+    let closer = closer_option_item_locator(on_ground, fixture)?;
+    Some((closer.tile_id(), closer.item_id()))
 }
 
 fn distance_to_score(distance: impl Into<Q40p24>) -> Q40p24 {
@@ -361,17 +360,22 @@ pub fn manhattan(a: TileId, b: TileId) -> u32 {
 pub fn nearest_item_on_ground(
     target_kind: &ItemKind,
     current_pos: &TileId,
-    items: &Query<(&Item, &TileId)>,
-) -> Option<(ItemId, TileId, u32)> {
+    items: &ItemQuery<&TileId>,
+) -> Option<ItemLocator> {
     // find nearest item on ground that matches item
     let mut nearest = None;
-    for (item, item_pos) in items.iter() {
+    for (item, item_pos) in items.query.iter() {
         if item.kind == *target_kind {
             let distance = manhattan(*current_pos, *item_pos);
-            if distance > nearest.map(|(_, _, d)| d).unwrap_or(u32::MAX) {
+            if distance
+                > nearest
+                    .as_ref()
+                    .map(ItemLocator::distance)
+                    .unwrap_or(u32::MAX)
+            {
                 continue;
             }
-            nearest = Some((item.id, *item_pos, distance));
+            nearest = Some(ItemLocator::OnGround(item.id, *item_pos, distance));
         }
     }
     nearest
@@ -380,27 +384,40 @@ pub fn nearest_item_on_ground(
 pub fn nearest_fixture_with_item(
     target_kind: &ItemKind,
     current_pos: &TileId,
-    fixtures: &Query<(&Fixture, &TileId)>,
-) -> Option<(FixtureId, TileId, ItemId, u32)> {
+    fixtures: &FixtureQuery<&TileId>,
+) -> Option<ItemLocator> {
     // find nearest fixture that contains item
     let mut nearest = None;
-    for (fixture, fixture_pos) in fixtures.iter() {
+    for (fixture, fixture_pos) in fixtures.query.iter() {
         let item_id = item_in_inventory(target_kind, &fixture.inventory);
         let Some(item_id) = item_id else {
             continue;
         };
 
         let distance = manhattan(*current_pos, *fixture_pos);
-        if distance > nearest.map(|(_, _, _, d)| d).unwrap_or(u32::MAX) {
+        if distance
+            > nearest
+                .as_ref()
+                .map(ItemLocator::distance)
+                .unwrap_or(u32::MAX)
+        {
             continue;
         }
 
-        nearest = Some((fixture.id, *fixture_pos, item_id, distance));
+        nearest = Some(ItemLocator::InFixture(
+            fixture.id,
+            *fixture_pos,
+            item_id,
+            distance,
+        ));
     }
     nearest
 }
 
-pub fn item_in_inventory(item: &ItemKind, inventory: &Vec<(ItemId, ItemKind)>) -> Option<ItemId> {
+pub fn item_in_inventory(
+    item: &ItemKind,
+    inventory: &Vec<(ItemId, ItemKind)>,
+) -> Option<ItemLocator> {
     inventory
         .iter()
         .find(|(_, kind)| kind == item)
