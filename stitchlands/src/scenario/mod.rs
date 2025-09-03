@@ -5,14 +5,14 @@ pub mod model;
 use bevy::prelude::*;
 pub use loader::LoadedScenarioMeta;
 use simkit_core::{
-    ids::{IdAllocator, IdIndex},
+    ids::IdIndex,
     AppState,
 };
 
 use crate::{
     model::{
-        components::{Item, Pawn, Zone},
-        ids::{ItemId, PawnId, ZoneId},
+        components::{Fixture, Item, Pawn},
+        ids::{FixtureId, ItemId, PawnId, TaskId},
     },
     CliOptions,
     RunMode,
@@ -24,12 +24,10 @@ impl Plugin for ScenarioPlugin {
     fn build(&self, app: &mut App) {
         app
             // Ensure ID allocators and indices are present
-            .init_resource::<IdAllocator<PawnId>>()
             .init_resource::<IdIndex<PawnId>>()
-            .init_resource::<IdAllocator<ItemId>>()
             .init_resource::<IdIndex<ItemId>>()
-            .init_resource::<IdAllocator<ZoneId>>()
-            .init_resource::<IdIndex<ZoneId>>()
+            .init_resource::<IdIndex<FixtureId>>()
+            .init_resource::<IdIndex<TaskId>>()
             // Load scenario and world on enter (live mode)
             .add_systems(OnEnter(AppState::InGame), loader::load_scenario)
             // Cleanup on exit
@@ -66,7 +64,7 @@ fn index_on_add_item(mut idx: ResMut<IdIndex<ItemId>>, q: Query<(Entity, &Item),
         idx.insert(it.id, e);
     }
 }
-fn index_on_add_zone(mut idx: ResMut<IdIndex<ZoneId>>, q: Query<(Entity, &Zone), Added<Zone>>) {
+fn index_on_add_zone(mut idx: ResMut<IdIndex<FixtureId>>, q: Query<(Entity, &Fixture), Added<Fixture>>) {
     for (e, z) in &q {
         idx.insert(z.id, e);
     }
@@ -74,21 +72,21 @@ fn index_on_add_zone(mut idx: ResMut<IdIndex<ZoneId>>, q: Query<(Entity, &Zone),
 
 fn index_on_remove_pawn(mut idx: ResMut<IdIndex<PawnId>>, mut removed: RemovedComponents<Pawn>) {
     for e in removed.read() {
-        if let Some((k, _)) = idx.0.iter().find(|(_k, v)| **v == e).map(|(k, v)| (*k, *v)) {
+        if let Some((k, _)) = idx.0.iter().find(|(_k, v)| **v == Some(e)).map(|(k, v)| (*k, *v)) {
             idx.0.remove(&k);
         }
     }
 }
 fn index_on_remove_item(mut idx: ResMut<IdIndex<ItemId>>, mut removed: RemovedComponents<Item>) {
     for e in removed.read() {
-        if let Some((k, _)) = idx.0.iter().find(|(_k, v)| **v == e).map(|(k, v)| (*k, *v)) {
+        if let Some((k, _)) = idx.0.iter().find(|(_k, v)| **v == Some(e)).map(|(k, v)| (*k, *v)) {
             idx.0.remove(&k);
         }
     }
 }
-fn index_on_remove_zone(mut idx: ResMut<IdIndex<ZoneId>>, mut removed: RemovedComponents<Zone>) {
+fn index_on_remove_zone(mut idx: ResMut<IdIndex<FixtureId>>, mut removed: RemovedComponents<Fixture>) {
     for e in removed.read() {
-        if let Some((k, _)) = idx.0.iter().find(|(_k, v)| **v == e).map(|(k, v)| (*k, *v)) {
+        if let Some((k, _)) = idx.0.iter().find(|(_k, v)| **v == Some(e)).map(|(k, v)| (*k, *v)) {
             idx.0.remove(&k);
         }
     }

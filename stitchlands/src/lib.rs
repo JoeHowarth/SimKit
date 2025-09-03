@@ -5,7 +5,6 @@ use bevy::prelude::*;
 use rand::{rngs::SmallRng, SeedableRng};
 use simkit_core::{
     grid::{index::sync_tile_index, TileId},
-    ids::IdAllocator,
     AppState,
     KitSystemSet,
     Playback,
@@ -13,9 +12,10 @@ use simkit_core::{
 
 use crate::{
     model::{
-        components::{Item, Pawn, Zone},
-        ids::{self, TaskId},
+        components::{Fixture, Item, Pawn},
+        ids::TaskId,
     },
+    scenario::LoadedScenarioMeta,
     snapshot::{build_world_snapshot, stable_hash_json},
 };
 
@@ -23,8 +23,8 @@ pub mod model;
 pub mod scenario;
 pub mod snapshot;
 pub mod tasks;
+pub mod toils;
 pub mod world;
-use crate::scenario::LoadedScenarioMeta;
 
 // Resources and markers
 #[derive(Resource, Debug, Clone, Copy)]
@@ -52,7 +52,7 @@ impl Default for RngResource {
     }
 }
 
-#[derive(Component)]
+#[derive(Component, Default)]
 pub struct WorldTag;
 
 // Sub-labels within PreStep/Step/PostStep to stabilize ordering
@@ -105,7 +105,6 @@ impl Plugin for StitchlandsCorePlugin {
             .init_resource::<tasks::TaskBoard>()
             .init_resource::<tasks::UniqueTargetRes>()
             .init_resource::<tasks::LogBuffer>()
-            .init_resource::<IdAllocator<TaskId>>()
             .add_plugins(crate::scenario::ScenarioPlugin)
             .add_event::<SnapshotSaveEvent>()
             // Chain our sub-sets inside KitSystemSet phases
@@ -202,7 +201,9 @@ fn headless_exit_after_ticks(
     _world_tag_q: Query<Entity, With<WorldTag>>,
     pawn_q: Query<(&Pawn, &TileId)>,
     item_q: Query<(&Item, &TileId)>,
-    zone_q: Query<&Zone>,
+    fixture_q: Query<(&Fixture, &TileId)>,
+    // todo
+    // task_q: Query<&TaskId>,
     scenario_meta: Option<Res<LoadedScenarioMeta>>,
     mut exit: EventWriter<AppExit>,
 ) {
@@ -214,16 +215,21 @@ fn headless_exit_after_ticks(
         if (playback.tick.0 as u64) >= limit {
             // Extract a baseline snapshot and print a stable hash for
             // determinism testing
-            let scenario_seed = scenario_meta.as_ref().and_then(|m| m.sim_seed);
-            let pawns_vec: Vec<_> = pawn_q.iter().map(|(p, pos)| (*p, *pos)).collect();
-            let items_vec: Vec<_> = item_q.iter().map(|(it, pos)| (it.clone(), *pos)).collect();
-            let zones_vec: Vec<_> = zone_q.iter().cloned().collect();
-            let world_snap =
-                build_world_snapshot(&playback, scenario_seed, &pawns_vec, &items_vec, &zones_vec);
-            let hash = stable_hash_json(&world_snap);
-            println!("SNAP:{}", hash);
-            exit.write(AppExit::Success);
+            // let scenario_seed = scenario_meta.as_ref().and_then(|m|
+            // m.sim_seed); let pawns_vec: Vec<_> =
+            // pawn_q.iter().map(|(p, pos)| (*p, *pos)).collect();
+            // let items_vec: Vec<_> = item_q.iter().map(|(it, pos)|
+            // (it.clone(), *pos)).collect(); let fixtures_vec:
+            // Vec<_> = fixture_q.iter().map(|(f, pos)| (f.clone(),
+            // *pos)).collect(); let tasks_vec: Vec<_> =
+            // task_q.iter().map(|(t, _)| (t.clone(), *pos)).collect();
+            // let world_snap =
+            //     build_world_snapshot(&playback, scenario_seed, &pawns_vec,
+            // &items_vec, &zones_vec); let hash =
+            // stable_hash_json(&world_snap); println!("SNAP:{}",
+            // hash); exit.write(AppExit::Success);
         }
+        todo!()
     }
 }
 
@@ -239,16 +245,27 @@ fn handle_snapshot_save_events(
     scenario_meta: Option<Res<LoadedScenarioMeta>>,
     pawns_q: Query<(&Pawn, &TileId)>,
     items_q: Query<(&Item, &TileId)>,
-    zones_q: Query<&Zone>,
+    fixtures_q: Query<(&Fixture, &TileId)>,
+    // tasks_q: Query<&TaskId>,
 ) {
     use std::fs;
     let scenario_seed = scenario_meta.as_ref().and_then(|m| m.sim_seed);
     for ev in evr.read() {
-        let pawns_vec: Vec<_> = pawns_q.iter().map(|(p, pos)| (*p, *pos)).collect();
+        let pawns_vec: Vec<_> = pawns_q.iter().map(|(p, pos)| (p.clone(), *pos)).collect();
         let items_vec: Vec<_> = items_q.iter().map(|(it, pos)| (it.clone(), *pos)).collect();
-        let zones_vec: Vec<_> = zones_q.iter().cloned().collect();
-        let snap =
-            build_world_snapshot(&playback, scenario_seed, &pawns_vec, &items_vec, &zones_vec);
+        let fixtures_vec: Vec<_> = fixtures_q
+            .iter()
+            .map(|(f, pos)| (f.clone(), *pos))
+            .collect();
+        let tasks_vec = vec![];
+        let snap = build_world_snapshot(
+            &playback,
+            scenario_seed,
+            &pawns_vec,
+            &items_vec,
+            &fixtures_vec,
+            &tasks_vec,
+        );
         let pretty = ron::ser::to_string_pretty(&snap, ron::ser::PrettyConfig::default())
             .expect("serialize snapshot to RON");
         if let Err(e) = fs::write(&ev.path, pretty) {

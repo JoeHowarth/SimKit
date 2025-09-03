@@ -232,6 +232,12 @@ impl From<i16> for Q40p24 {
         Q40p24::from_int(v as i64)
     }
 }
+impl From<u32> for Q40p24 {
+    #[inline]
+    fn from(v: u32) -> Self {
+        Q40p24::from_int(v as i64)
+    }
+}
 impl From<i32> for Q40p24 {
     #[inline]
     fn from(v: i32) -> Self {
@@ -356,6 +362,32 @@ impl fmt::Display for Q40p24 {
 
 // ===== Convenience ops with integers =====
 
+impl Add<u32> for Q40p24 {
+    type Output = Self;
+    #[inline]
+    fn add(self, rhs: u32) -> Self {
+        self + Q40p24::from_int(rhs as i64)
+    }
+}
+impl Sub<u32> for Q40p24 {
+    type Output = Self;
+
+    fn sub(self, rhs: u32) -> Self::Output {
+        self - Q40p24::from_int(rhs as i64)
+    }
+}
+impl AddAssign<u32> for Q40p24 {
+    #[inline]
+    fn add_assign(&mut self, rhs: u32) {
+        *self = *self + rhs;
+    }
+}
+impl SubAssign<u32> for Q40p24 {
+    #[inline]
+    fn sub_assign(&mut self, rhs: u32) {
+        *self = *self - rhs;
+    }
+}
 impl Add<i64> for Q40p24 {
     type Output = Self;
     #[inline]
@@ -368,6 +400,20 @@ impl Sub<i64> for Q40p24 {
     #[inline]
     fn sub(self, rhs: i64) -> Self {
         self - Q40p24::from_int(rhs)
+    }
+}
+impl Mul<u32> for Q40p24 {
+    type Output = Self;
+    #[inline]
+    fn mul(self, rhs: u32) -> Self {
+        self * Q40p24::from_int(rhs as i64)
+    }
+}
+impl Mul<i32> for Q40p24 {
+    type Output = Self;
+    #[inline]
+    fn mul(self, rhs: i32) -> Self {
+        self * Q40p24::from_int(rhs as i64)
     }
 }
 impl Mul<i64> for Q40p24 {

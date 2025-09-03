@@ -57,7 +57,7 @@ pub fn sync_tile_index<T: HasSimId>(
 mod tests {
     use super::*;
 
-    #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+    #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Ord, PartialOrd)]
     struct FooId(u64);
     impl SimId for FooId {
         fn from_u64(v: u64) -> Self {

@@ -4,6 +4,8 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use simkit_core::grid::TileId;
 
+use crate::model::ids::ItemId;
+
 // Basic map/tiles; unused in 0.b beyond size
 // On-disk files are ScenarioDef (serde-renamed to Scenario)
 
@@ -54,6 +56,8 @@ pub struct PawnDef {
     pub needs: NeedsDef,
     #[serde(default)]
     pub priorities: HashMap<String, i32>,
+    #[serde(default)]
+    pub inventory: Vec<ItemId>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, Default)]
@@ -71,16 +75,14 @@ pub struct ItemDef {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct ZoneDef {
+pub struct FixtureDef {
     pub id: Option<u64>,
     pub kind: String,
-    pub rect: Option<(TileId, TileId)>,
-    #[serde(default)]
-    pub filters: Vec<String>,
+    pub pos: Option<TileId>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub enum DesignationDef {
+pub enum TaskDef {
     Harvest(TileId),
 }
 
@@ -96,9 +98,9 @@ pub struct ScenarioDef {
     #[serde(default)]
     pub items: Vec<ItemDef>,
     #[serde(default)]
-    pub zones: Vec<ZoneDef>,
+    pub fixtures: Vec<FixtureDef>,
     #[serde(default)]
-    pub designations: Vec<DesignationDef>,
+    pub tasks: Vec<TaskDef>,
     pub defaults: Option<DefaultsDef>,
 }
 

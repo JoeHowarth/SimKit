@@ -1,18 +1,15 @@
-use std::fs;
+use std::{fs, str::FromStr};
 
 use bevy::prelude::*;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 use simkit_core::{
     grid::{index::TileMapIndex, GridConfig, TileId},
-    ids::{IdAllocator, IdIndex},
+    ids::IdIndex,
 };
 
 use super::model::ScenarioDef;
 use crate::{
-    model::{
-        components::{Item, Pawn, Zone},
-        ids::{ItemId, PawnId, ZoneId},
-    },
+    model::{components::*, ids::*},
     snapshot::load_world_snapshot,
     tasks::{Designation, Needs, TaskRef},
     world::WorldGrid,
@@ -29,12 +26,14 @@ pub fn load_scenario(
     mut commands: Commands,
     cli: Option<Res<CliOptions>>,
     mut rng: ResMut<RngResource>,
-    mut pawn_alloc: ResMut<IdAllocator<PawnId>>,
+    // mut pawn_alloc: ResMut<IdAllocator<PawnId>>,
     mut pawn_index: ResMut<IdIndex<PawnId>>,
-    mut item_alloc: ResMut<IdAllocator<ItemId>>,
+    // mut item_alloc: ResMut<IdAllocator<ItemId>>,
     mut item_index: ResMut<IdIndex<ItemId>>,
-    mut zone_alloc: ResMut<IdAllocator<ZoneId>>,
-    mut zone_index: ResMut<IdIndex<ZoneId>>,
+    // mut fixture_alloc: ResMut<IdAllocator<FixtureId>>,
+    mut fixture_index: ResMut<IdIndex<FixtureId>>,
+    // mut task_alloc: ResMut<IdAllocator<TaskId>>,
+    mut task_index: ResMut<IdIndex<TaskId>>,
 ) {
     // Resources provided by plugin init
     let scenario_opt = cli.as_deref().and_then(|c| c.scenario.as_ref()).cloned();
@@ -52,26 +51,21 @@ pub fn load_scenario(
             sim_seed: Some(sim_seed),
         });
         // Bump allocators past max ids present
-        if let Some(max) = snap.pawns.iter().map(|p| p.pawn.id.0).max() {
-            if pawn_alloc.next <= max {
-                pawn_alloc.reset(max + 1);
-            }
+
+        for pawn in snap.pawns.iter() {
+            pawn_index.register(pawn.pawn.id);
         }
-        if let Some(max) = snap.items.iter().map(|i| i.item.id.0).max() {
-            if item_alloc.next <= max {
-                item_alloc.reset(max + 1);
-            }
+
+        for item in snap.items.iter() {
+            item_index.register(item.item.id);
         }
-        if let Some(max) = snap.zones.iter().map(|z| z.zone.id.0).max() {
-            if zone_alloc.next <= max {
-                zone_alloc.reset(max + 1);
-            }
-        }
+
         load_world_snapshot(
             &mut commands,
             &mut pawn_index,
             &mut item_index,
-            &mut zone_index,
+            &mut fixture_index,
+            &mut task_index,
             &snap,
         );
         return;
@@ -88,8 +82,8 @@ pub fn load_scenario(
             map: Default::default(),
             pawns: Vec::new(),
             items: Vec::new(),
-            zones: Vec::new(),
-            designations: Vec::new(),
+            fixtures: Vec::new(),
+            tasks: Vec::new(),
             defaults: None,
         }
     };
@@ -97,12 +91,10 @@ pub fn load_scenario(
     load_scenario_from_def(
         commands,
         rng,
-        pawn_alloc,
         pawn_index,
-        item_alloc,
         item_index,
-        zone_alloc,
-        zone_index,
+        fixture_index,
+        task_index,
         scenario_def,
         cli.as_deref().map(|c| c.seed).unwrap_or(1),
     );
@@ -112,12 +104,12 @@ pub fn load_scenario(
 pub fn load_scenario_from_def(
     mut commands: Commands,
     mut rng: ResMut<RngResource>,
-    mut pawn_alloc: ResMut<IdAllocator<PawnId>>,
+    // mut pawn_alloc: ResMut<IdAllocator<PawnId>>,
     mut pawn_index: ResMut<IdIndex<PawnId>>,
-    mut item_alloc: ResMut<IdAllocator<ItemId>>,
+    // mut item_alloc: ResMut<IdAllocator<ItemId>>,
     mut item_index: ResMut<IdIndex<ItemId>>,
-    mut zone_alloc: ResMut<IdAllocator<ZoneId>>,
-    mut zone_index: ResMut<IdIndex<ZoneId>>,
+    mut fixture_index: ResMut<IdIndex<FixtureId>>,
+    mut task_index: ResMut<IdIndex<TaskId>>,
     scenario_def: ScenarioDef,
     fallback_seed: u64,
 ) {
@@ -138,13 +130,13 @@ pub fn load_scenario_from_def(
     };
     let mut pawn_tile_index: TileMapIndex<PawnId> = TileMapIndex::new(cfg);
     let mut item_tile_index: TileMapIndex<ItemId> = TileMapIndex::new(cfg);
+    let mut fixture_tile_index: TileMapIndex<FixtureId> = TileMapIndex::new(cfg);
 
     // Pawns
     spawn_pawns_from_def(
         &mut commands,
         &mut rng.0,
         map_size,
-        &mut pawn_alloc,
         &mut pawn_index,
         &scenario_def.pawns,
         &mut pawn_tile_index,
@@ -154,28 +146,29 @@ pub fn load_scenario_from_def(
         &mut commands,
         &mut rng.0,
         map_size,
-        &mut item_alloc,
         &mut item_index,
         &scenario_def.items,
         &mut item_tile_index,
     );
-    // Zones
-    spawn_zones_from_def(
+
+    // Fixtures
+    spawn_fixtures_from_def(
         &mut commands,
         &mut rng.0,
         map_size,
-        &mut zone_alloc,
-        &mut zone_index,
-        &scenario_def.zones,
+        &mut fixture_index,
+        &scenario_def.fixtures,
+        &mut fixture_tile_index,
     );
 
     // Designations
-    spawn_designations_from_def(&mut commands, &scenario_def.designations);
+    // spawn_designations_from_def(&mut commands, &scenario_def.tasks);
 
     // Finally insert resources
     commands.insert_resource(world_grid);
     commands.insert_resource(pawn_tile_index);
     commands.insert_resource(item_tile_index);
+    commands.insert_resource(fixture_tile_index);
 }
 
 fn rand_pos(rng: &mut SmallRng, size: super::model::MapSize) -> TileId {
@@ -226,32 +219,19 @@ fn unique_pos(
     pos
 }
 
-fn bump_alloc_after_provided<T: simkit_core::ids::SimId>(
-    alloc: &mut IdAllocator<T>,
-    max_provided: Option<u64>,
-) {
-    if let Some(max) = max_provided {
-        if alloc.next <= max {
-            alloc.reset(max + 1);
-        }
-    }
-}
-
 fn spawn_pawns_from_def(
     commands: &mut Commands,
     rng: &mut SmallRng,
     map_size: super::model::MapSize,
-    alloc: &mut IdAllocator<PawnId>,
     index: &mut IdIndex<PawnId>,
     pawns: &[super::model::PawnDef],
     tile_index: &mut TileMapIndex<PawnId>,
 ) {
     use std::collections::HashSet;
     let mut used_positions: HashSet<(i32, i32)> = HashSet::new();
-    let max_provided = pawns.iter().filter_map(|p| p.id).max();
     let mut gen = || rand_pos(rng, map_size);
     for (i, p) in pawns.iter().enumerate() {
-        let typed = alloc.assign(p.id.map(PawnId));
+        let typed = index.alloc(p.id.map(PawnId));
         let name = p.name.clone().unwrap_or_else(|| format!("Pawn{}", i + 1));
         let pos = match p.pos {
             Some(pos) => unique_pos(&mut used_positions, pos, &mut gen),
@@ -265,7 +245,10 @@ fn spawn_pawns_from_def(
             .spawn((
                 crate::WorldTag,
                 Name::new(name),
-                Pawn { id: typed },
+                Pawn {
+                    id: typed,
+                    inventory: p.inventory.clone(),
+                },
                 needs,
                 pos,
             ))
@@ -275,24 +258,21 @@ fn spawn_pawns_from_def(
         // Tile index mark
         tile_index.move_id(None, pos, typed);
     }
-    bump_alloc_after_provided(alloc, max_provided);
 }
 
 fn spawn_items_from_def(
     commands: &mut Commands,
     rng: &mut SmallRng,
     map_size: super::model::MapSize,
-    alloc: &mut IdAllocator<ItemId>,
     index: &mut IdIndex<ItemId>,
     items: &[super::model::ItemDef],
     tile_index: &mut TileMapIndex<ItemId>,
 ) {
     use std::collections::HashSet;
     let mut used_positions: HashSet<(i32, i32)> = HashSet::new();
-    let max_provided = items.iter().filter_map(|i| i.id).max();
     let mut gen = || rand_pos(rng, map_size);
     for it in items.iter() {
-        let typed = alloc.assign(it.id.map(ItemId));
+        let typed = index.alloc(it.id.map(ItemId));
         let pos = match it.pos {
             Some(pos) => unique_pos(&mut used_positions, pos, &mut gen),
             None => unique_pos(&mut used_positions, gen(), &mut gen),
@@ -303,7 +283,7 @@ fn spawn_items_from_def(
                 Name::new(format!("Item#{}", typed.0)),
                 Item {
                     id: typed,
-                    kind: it.kind.clone(),
+                    kind: ItemKind::from_str(&it.kind).unwrap(),
                     qty: it.qty,
                 },
                 pos,
@@ -314,51 +294,53 @@ fn spawn_items_from_def(
         // Tile index mark
         tile_index.move_id(None, pos, typed);
     }
-    bump_alloc_after_provided(alloc, max_provided);
 }
 
-fn spawn_zones_from_def(
+fn spawn_fixtures_from_def(
     commands: &mut Commands,
     rng: &mut SmallRng,
     map_size: super::model::MapSize,
-    alloc: &mut IdAllocator<ZoneId>,
-    index: &mut IdIndex<ZoneId>,
-    zones: &[super::model::ZoneDef],
+    index: &mut IdIndex<FixtureId>,
+    fixtures: &[super::model::FixtureDef],
+    tile_index: &mut TileMapIndex<FixtureId>,
 ) {
-    let max_provided = zones.iter().filter_map(|z| z.id).max();
-    for z in zones.iter() {
-        let typed = alloc.assign(z.id.map(ZoneId));
-        let rect = match z.rect {
-            Some((a, b)) => norm_rect(a, b, map_size),
-            None => {
-                let p = rand_pos(rng, map_size);
-                (p, p)
-            }
+    use std::collections::HashSet;
+    let mut used_positions: HashSet<(i32, i32)> = HashSet::new();
+    let mut gen = || rand_pos(rng, map_size);
+    for it in fixtures.iter() {
+        let typed = index.alloc(it.id.map(FixtureId));
+        let pos = match it.pos {
+            Some(pos) => unique_pos(&mut used_positions, pos, &mut gen),
+            None => unique_pos(&mut used_positions, gen(), &mut gen),
         };
         let entity = commands
             .spawn((
                 crate::WorldTag,
-                Name::new(format!("Zone#{}", typed.0)),
-                Zone {
+                Name::new(format!("Fixture#{}", typed.0)),
+                Fixture {
                     id: typed,
-                    kind: z.kind.clone(),
-                    rect,
-                    filters: z.filters.clone(),
+                    kind: FixtureKind::from_str(&it.kind).unwrap(),
+                    inventory: vec![],
                 },
+                pos,
             ))
             .id();
         index.insert(typed, entity);
+
+        // Tile index mark
+        tile_index.move_id(None, pos, typed);
     }
-    bump_alloc_after_provided(alloc, max_provided);
 }
 
 fn spawn_designations_from_def(
     commands: &mut Commands,
-    designations: &[super::model::DesignationDef],
+    index: &mut IdIndex<TaskId>,
+    designations: &[super::model::TaskDef],
 ) {
+    // todo
     for d in designations.iter() {
         match d {
-            super::model::DesignationDef::Harvest(tile) => {
+            super::model::TaskDef::Harvest(tile) => {
                 let name = format!("Designation(Harvest @{}, {})", tile.x, tile.y);
                 commands.spawn((
                     crate::WorldTag,
@@ -382,23 +364,19 @@ mod tests {
     fn sys_load_from_def(
         commands: Commands,
         rng: ResMut<RngResource>,
-        pawn_alloc: ResMut<IdAllocator<PawnId>>,
         pawn_index: ResMut<IdIndex<PawnId>>,
-        item_alloc: ResMut<IdAllocator<ItemId>>,
         item_index: ResMut<IdIndex<ItemId>>,
-        zone_alloc: ResMut<IdAllocator<ZoneId>>,
-        zone_index: ResMut<IdIndex<ZoneId>>,
+        fixture_index: ResMut<IdIndex<FixtureId>>,
+        task_index: ResMut<IdIndex<TaskId>>,
         scn: Res<TestScenario>,
     ) {
         load_scenario_from_def(
             commands,
             rng,
-            pawn_alloc,
             pawn_index,
-            item_alloc,
             item_index,
-            zone_alloc,
-            zone_index,
+            fixture_index,
+            task_index,
             scn.0.clone(),
             1,
         );
@@ -421,6 +399,7 @@ mod tests {
                         hunger: 0.5,
                         rest: 0.8,
                     },
+                    inventory: vec![],
                     priorities: Default::default(),
                 },
                 model::PawnDef {
@@ -431,6 +410,7 @@ mod tests {
                         hunger: 0.6,
                         rest: 0.7,
                     },
+                    inventory: vec![],
                     priorities: Default::default(),
                 },
             ],
@@ -440,32 +420,21 @@ mod tests {
                 qty: 5,
                 pos: None,
             }],
-            zones: vec![
-                model::ZoneDef {
-                    id: None,
-                    kind: "Stockpile".into(),
-                    rect: Some((TileId { x: 3, y: 3 }, TileId { x: 1, y: 2 })),
-                    filters: vec![],
-                },
-                model::ZoneDef {
-                    id: None,
-                    kind: "Dump".into(),
-                    rect: None,
-                    filters: vec![],
-                },
-            ],
-            designations: vec![],
+            tasks: vec![model::TaskDef::Harvest(TileId { x: 3, y: 3 })],
             defaults: None,
+            fixtures: vec![model::FixtureDef {
+                id: None,
+                kind: "Stockpile".into(),
+                pos: None,
+            }],
         };
 
         let mut app = App::new();
         app.init_resource::<RngResource>()
-            .init_resource::<IdAllocator<PawnId>>()
             .init_resource::<IdIndex<PawnId>>()
-            .init_resource::<IdAllocator<ItemId>>()
             .init_resource::<IdIndex<ItemId>>()
-            .init_resource::<IdAllocator<ZoneId>>()
-            .init_resource::<IdIndex<ZoneId>>()
+            .init_resource::<IdIndex<FixtureId>>()
+            .init_resource::<IdIndex<TaskId>>()
             .insert_resource(TestScenario(def))
             .add_systems(Startup, sys_load_from_def);
 
@@ -496,23 +465,21 @@ mod tests {
         let ipos = items[0].1;
         assert!(ipos.x >= 0 && ipos.x < 4 && ipos.y >= 0 && ipos.y < 4);
 
-        // Validate zones normalization / default
-        let mut zone_q = world.query::<&Zone>();
-        let zones: Vec<_> = zone_q.iter(world).collect();
-        assert_eq!(zones.len(), 2);
-        assert!(zones
-            .iter()
-            .any(|z| z.rect.0.x <= z.rect.1.x && z.rect.0.y <= z.rect.1.y));
-        assert!(zones
-            .iter()
-            .any(|z| z.rect.0.x == z.rect.1.x && z.rect.0.y == z.rect.1.y));
+        // Validate fixtures
+        let mut fixture_q = world.query::<(&Fixture, &TileId)>();
+        let fixtures: Vec<_> = fixture_q.iter(world).collect();
+        assert_eq!(fixtures.len(), 1);
+        assert!(fixtures[0].0.id.0 >= 1000);
+        let fpos = fixtures[0].1;
+        assert!(fpos.x >= 0 && fpos.x < 4 && fpos.y >= 0 && fpos.y < 4);
 
-        // Allocators bumped
-        let pawn_alloc = world.resource::<IdAllocator<PawnId>>();
-        let item_alloc = world.resource::<IdAllocator<ItemId>>();
-        let zone_alloc = world.resource::<IdAllocator<ZoneId>>();
-        assert!(pawn_alloc.peek_next() >= 1001);
-        assert!(item_alloc.peek_next() >= 1001);
-        assert!(zone_alloc.peek_next() >= 1001);
+        // Validate tasks
+        let mut task_q = world.query::<&Designation>();
+        let tasks: Vec<_> = task_q.iter(world).collect();
+        assert_eq!(tasks.len(), 1);
+        assert!(matches!(
+            tasks[0],
+            Designation::Harvest(TileId { x: 3, y: 3 })
+        ));
     }
 }

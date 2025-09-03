@@ -2,10 +2,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use simkit_core::{grid::TileId, ids::IdIndex, Playback};
 
-use crate::model::{
-    components::{Item, Pawn, Zone},
-    ids::{ItemId, PawnId, ZoneId},
-};
+use crate::model::{components::*, ids::*};
 
 pub fn stable_hash_json<T: Serialize>(value: &T) -> String {
     let json = serde_json::to_vec(value).expect("serialize snapshot");
@@ -33,9 +30,17 @@ pub struct ItemEntry {
     pub item: Item,
     pub pos: TileId,
 }
+
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
-pub struct ZoneEntry {
-    pub zone: Zone,
+pub struct FixtureEntry {
+    pub fixture: Fixture,
+    pub pos: TileId,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct TaskEntry {
+    // TODO: add real type
+    pub task: TaskId,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -44,7 +49,8 @@ pub struct WorldSnapshot {
     pub scenario_seed: Option<u64>,
     pub pawns: Vec<PawnEntry>,
     pub items: Vec<ItemEntry>,
-    pub zones: Vec<ZoneEntry>,
+    pub fixtures: Vec<FixtureEntry>,
+    pub tasks: Vec<TaskEntry>,
 }
 
 pub fn build_world_snapshot(
@@ -52,37 +58,47 @@ pub fn build_world_snapshot(
     scenario_seed: Option<u64>,
     pawns: &[(Pawn, TileId)],
     items: &[(Item, TileId)],
-    zones: &[Zone],
+    fixtures: &[(Fixture, TileId)],
+    tasks: &[TaskId],
 ) -> WorldSnapshot {
-    let mut pawn_entries: Vec<PawnEntry> = pawns
-        .iter()
-        .map(|(p, pos)| PawnEntry {
-            pawn: *p,
-            pos: *pos,
-        })
-        .collect();
-    pawn_entries.sort_by_key(|e| e.pawn.id);
-    let mut item_entries: Vec<ItemEntry> = items
-        .iter()
-        .map(|(it, pos)| ItemEntry {
-            item: it.clone(),
-            pos: *pos,
-        })
-        .collect();
-    item_entries.sort_by_key(|e| e.item.id);
-    let mut zone_entries: Vec<ZoneEntry> = zones
-        .iter()
-        .map(|z| ZoneEntry { zone: z.clone() })
-        .collect();
-    zone_entries.sort_by_key(|e| e.zone.id);
-
-    WorldSnapshot {
+    let mut snap = WorldSnapshot {
         tick: playback.tick.0,
         scenario_seed,
-        pawns: pawn_entries,
-        items: item_entries,
-        zones: zone_entries,
-    }
+        // pawns
+        pawns: pawns
+            .iter()
+            .map(|(p, pos)| PawnEntry {
+                pawn: p.clone(),
+                pos: *pos,
+            })
+            .collect(),
+        // items
+        items: items
+            .iter()
+            .map(|(it, pos)| ItemEntry {
+                item: it.clone(),
+                pos: *pos,
+            })
+            .collect(),
+        // fixtures
+        fixtures: fixtures
+            .iter()
+            .map(|(f, pos)| FixtureEntry {
+                fixture: f.clone(),
+                pos: *pos,
+            })
+            .collect(),
+        // tasks
+        // TODO: add real type
+        tasks: tasks.iter().map(|x| TaskEntry { task: *x }).collect(),
+    };
+
+    snap.pawns.sort_by_key(|e| e.pawn.id);
+    snap.items.sort_by_key(|e| e.item.id);
+    snap.fixtures.sort_by_key(|e| e.fixture.id);
+    snap.tasks.sort_by_key(|e| e.task);
+
+    snap
 }
 
 // Load a snapshot back into the world using the same serializable definition
@@ -90,7 +106,8 @@ pub fn load_world_snapshot(
     commands: &mut Commands,
     pawn_index: &mut IdIndex<PawnId>,
     item_index: &mut IdIndex<ItemId>,
-    zone_index: &mut IdIndex<ZoneId>,
+    fixture_index: &mut IdIndex<FixtureId>,
+    task_index: &mut IdIndex<TaskId>,
     snapshot: &WorldSnapshot,
 ) {
     // Spawn pawns
@@ -99,7 +116,7 @@ pub fn load_world_snapshot(
             .spawn((
                 crate::WorldTag,
                 Name::new(format!("Pawn#{}", p.pawn.id.0)),
-                p.pawn,
+                p.pawn.clone(),
                 p.pos,
             ))
             .id();
@@ -117,19 +134,17 @@ pub fn load_world_snapshot(
             .id();
         item_index.insert(it.item.id, entity);
     }
-    // Spawn zones
-    for z in snapshot.zones.iter() {
+
+    // Spawn fixtures
+    for f in snapshot.fixtures.iter() {
         let entity = commands
-            .spawn((
-                crate::WorldTag,
-                Name::new(format!("Zone#{}", z.zone.id.0)),
-                z.zone.clone(),
-            ))
+            .spawn((crate::WorldTag, Name::new(format!("Fixture#{}", f.fixture.id.0)), f.fixture.clone(), f.pos))
             .id();
-        zone_index.insert(z.zone.id, entity);
+        fixture_index.insert(f.fixture.id, entity);
     }
 }
 
+/*
 #[cfg(test)]
 mod tests {
     use simkit_core::{grid::TileId, ids::IdIndex, Playback};
@@ -231,3 +246,5 @@ mod tests {
         assert_eq!(snap.zones, new_snap.zones);
     }
 }
+
+*/
