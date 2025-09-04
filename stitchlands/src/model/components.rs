@@ -26,10 +26,40 @@ use crate::{
 #[require(WorldTag)]
 pub struct Pawn {
     pub id: PawnId,
-    pub inventory: Vec<(ItemId, ItemKind)>,
+    pub inventory: Inventory,
     pub sleep: Q40p24,
     pub hunger: Q40p24,
     // health
+}
+
+#[derive(Component, Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct Inventory(pub Vec<(ItemId, ItemKind)>);
+
+impl Inventory {
+    pub fn add(&mut self, item: (ItemId, ItemKind)) {
+        self.0.push(item);
+    }
+    pub fn remove(&mut self, item_id: ItemId) {
+        self.0.retain(|(id, _)| *id != item_id);
+    }
+    pub fn contains(&self, item_id: ItemId) -> bool {
+        self.0.iter().any(|(id, _)| *id == item_id)
+    }
+    pub fn find(&self, item_kind: ItemKind) -> Option<ItemId> {
+        self.of_kind(item_kind).next()
+    }
+    pub fn of_kind<'a>(
+        &'a self,
+        item_kind: ItemKind,
+    ) -> impl Iterator<Item = ItemId> + 'a {
+        self.0.iter().filter_map(move |(id, kind)| {
+            if *kind == item_kind {
+                Some(*id)
+            } else {
+                None
+            }
+        })
+    }
 }
 
 /// Items
@@ -52,6 +82,22 @@ pub struct Item {
 pub enum ItemKind {
     Berry,
     Untyped(String),
+}
+
+impl ItemKind {
+    fn has_nutrition(&self) -> Option<Q40p24> {
+        match self {
+            ItemKind::Berry => Some(Q40p24::ONE),
+            ItemKind::Untyped(_) => None,
+        }
+    }
+
+    fn plantable_fixture(&self) -> Option<FixtureKind> {
+        match self {
+            ItemKind::Berry => Some(FixtureKind::BerryBush),
+            ItemKind::Untyped(_) => None,
+        }
+    }
 }
 
 impl FromStr for ItemKind {
@@ -150,7 +196,7 @@ impl WorldExt for World {
 pub struct Fixture {
     pub id: FixtureId,
     pub kind: FixtureKind,
-    pub inventory: Vec<(ItemId, ItemKind)>,
+    pub inventory: Inventory,
     pub harvest_countdown: Option<u32>,
 }
 

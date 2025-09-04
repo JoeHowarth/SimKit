@@ -13,7 +13,15 @@ use simkit_core::{
 
 use crate::{
     model::{components::*, ids::*},
-    toils::{closer_option_item_locator, ItemLocator, ToilKind},
+    toils::{
+        build_eat_plan,
+        build_plan_for_task,
+        build_sleep_plan,
+        closer_option_item_locator,
+        step_jobs,
+        ItemLocator,
+        ToilKind,
+    },
 };
 
 struct TaskPlugin;
@@ -21,11 +29,11 @@ struct TaskPlugin;
 impl Plugin for TaskPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<TaskBoard>()
-            .add_systems(FixedUpdate, schedule_pawns);
+            .add_systems(FixedUpdate, (step_jobs, schedule_pawns));
     }
 }
 
-#[derive(PartialEq, Eq, Hash)]
+#[derive(PartialEq, Eq, Hash, Debug)]
 pub enum TaskSpecKind {
     Harvest,
     Plant,
@@ -59,10 +67,10 @@ impl_hassimid!(Task, TaskId);
 struct WorkPriority(pub Vec<TaskSpecKind>);
 
 #[derive(Component)]
-struct Job {
-    kind: JobKind,
-    current_toil: Option<ToilKind>,
-    plan: VecDeque<ToilKind>,
+pub struct Job {
+    pub kind: JobKind,
+    pub current_toil: Option<ToilKind>,
+    pub plan: VecDeque<ToilKind>,
 }
 
 #[derive(PartialEq, Eq, Clone, Copy)]
@@ -82,10 +90,10 @@ pub enum TaskStatus {
 }
 
 #[derive(Resource)]
-struct TaskBoard {
-    index: IdIndex<TaskId>,
-    tasks: HashMap<TaskId, Task>,
-    pending_tasks: HashMap<TaskSpecKind, HashSet<TaskId>>,
+pub struct TaskBoard {
+    pub index: IdIndex<TaskId>,
+    pub tasks: HashMap<TaskId, Task>,
+    pub pending_tasks: HashMap<TaskSpecKind, HashSet<TaskId>>,
 }
 
 impl Default for TaskBoard {
@@ -155,21 +163,41 @@ fn schedule_pawns(
     mut task_board: ResMut<TaskBoard>,
     fixtures: FixtureQuery<&TileId>,
     items: ItemQuery<&TileId>,
+    fixture_tile_index: Res<TileMapIndex<FixtureId>>,
 ) {
     // TODO: use a stable ordering of pawns
+    let mut pawns = pawns.iter_mut().collect::<Vec<_>>();
+    pawns.sort_by_key(|(pawn, _, _, _)| pawn.id.to_u64());
 
-    for (pawn, pos, work_priority, mut job) in pawns.iter_mut() {
+    for (pawn, pos, work_priority, mut job) in pawns {
         // If job is running, check if it should be preempted
-        if JobKind::None != job.kind {
-            if let Some(prempt) = should_preempt(pawn, job.kind) {
-                // If job should be preempted and it's not the same job, preempt
-                // it
+        if job.kind != JobKind::None {
+            if let Some(preempt) = should_preempt(pawn, job.kind) {
+                // If job should be preempted and it's not the same job,
+                // => preempt it
                 if let JobKind::Task(task_id) = &job.kind {
                     task_board.return_to_pending(*task_id);
                 }
+
+                let Ok(plan) = preempt
+                    .build_plan(
+                        pawn,
+                        pos,
+                        &task_board,
+                        &items,
+                        &fixtures,
+                        &fixture_tile_index,
+                    )
+                    .inspect_err(|e| {
+                        error!("Failed to build plan for preempted job: {}", e)
+                    })
+                else {
+                    continue;
+                };
+
                 *job = Job {
-                    kind: prempt,
-                    plan: VecDeque::new(),
+                    kind: preempt,
+                    plan,
                     current_toil: None,
                 };
             }
@@ -177,24 +205,23 @@ fn schedule_pawns(
         }
 
         // If no job is running, choose a new job
-        let kind = choose_next_job(
+        let next_job = choose_next_job(
             &task_board,
             pawn,
             pos,
             work_priority,
             &fixtures,
             &items,
+            &fixture_tile_index,
         );
 
-        if let JobKind::Task(task_id) = &kind {
+        // If the job is a task, set the task to assigned
+        if let JobKind::Task(task_id) = &next_job.kind {
             task_board.set_assigned(*task_id, pawn.id);
         }
 
-        *job = Job {
-            kind,
-            plan: VecDeque::new(),
-            current_toil: None,
-        };
+        // Set the job to the new job
+        *job = next_job;
     }
 }
 
@@ -232,44 +259,108 @@ fn should_preempt(pawn: &Pawn, current_job: JobKind) -> Option<JobKind> {
     None
 }
 
+fn next_job_is_needs(
+    pawn: &Pawn,
+    pos: &TileId,
+    fixtures: &FixtureQuery<&TileId>,
+    items: &ItemQuery<&TileId>,
+) -> Option<Job> {
+    // Sleep and eat threshold are lower than when we have a job
+    if pawn.eat_priority() > Q40p24::from(0.6) {
+        match build_eat_plan(pawn, pos, items, fixtures) {
+            Ok(plan) => {
+                return Some(Job {
+                    kind: JobKind::Eat,
+                    plan,
+                    current_toil: None,
+                })
+            }
+            Err(e) => {
+                warn!("Eat auto job failed to plan: {e}");
+            }
+        }
+    }
+
+    if pawn.sleep_priority() > Q40p24::from(0.6) {
+        match build_sleep_plan(pos, fixtures) {
+            Ok(plan) => {
+                return Some(Job {
+                    kind: JobKind::Sleep,
+                    plan,
+                    current_toil: None,
+                })
+            }
+            Err(e) => {
+                warn!("Sleep auto job failed to plan: {e}");
+            }
+        }
+    }
+
+    None
+}
+
 fn choose_next_job(
-    //
     pending: &TaskBoard,
     pawn: &Pawn,
     pos: &TileId,
     work_priority: &WorkPriority,
     fixtures: &FixtureQuery<&TileId>,
     items: &ItemQuery<&TileId>,
-) -> JobKind {
+    fixture_tile_index: &TileMapIndex<FixtureId>,
+) -> Job {
     // Check if needs are urgent
-    // Sleep and eat threshold are lower than when we have a job
-    if pawn.eat_priority() > Q40p24::from(0.6) {
-        return JobKind::Eat;
-    }
-    if pawn.sleep_priority() > Q40p24::from(0.6) {
-        return JobKind::Sleep;
+    if let Some(job) = next_job_is_needs(pawn, pos, fixtures, items) {
+        return job;
     }
 
     for kind in work_priority.0.iter() {
         // Find highest priority task for this kind
-        let max = pending
+        let mut tasks = pending
             .pending_tasks_by_kind(kind)
             .filter_map(|task| {
                 let priority =
                     task.spec.priority(pawn, pos, fixtures, items)?;
                 Some((priority, task))
             })
-            .max_by_key(|(priority, task)| {
-                (*priority, -(task.id.to_u64() as i64))
-            });
+            .collect::<Vec<_>>();
+        tasks.sort_by_key(|(priority, task)| {
+            (*priority, -(task.id.to_u64() as i64))
+        });
 
-        // If a task is found, return it
-        if let Some((_, task)) = max {
-            return JobKind::Task(task.id);
+        while let Some((_, task)) = tasks.pop() {
+            match build_plan_for_task(
+                task,
+                pawn,
+                pos,
+                items,
+                fixtures,
+                fixture_tile_index,
+            ) {
+                Ok(plan) => {
+                    let kind = JobKind::Task(task.id);
+                    info!("Built plan for task {:?}: {:?}", task.id, plan);
+                    return Job {
+                        kind,
+                        plan,
+                        current_toil: None,
+                    };
+                }
+                Err(e) => {
+                    info!(
+                        "Failed to build plan for task {:?}={:?}: {}",
+                        kind, task.id, e
+                    )
+                }
+            }
         }
     }
 
-    JobKind::None
+    info!("No job found for pawn {:?}", pawn.id);
+    Job {
+        kind: JobKind::None,
+        plan: VecDeque::new(),
+        current_toil: None,
+    }
 }
 
 impl TaskSpec {
@@ -337,7 +428,9 @@ pub fn neartest_item_position(
     items: &ItemQuery<&TileId>,
     fixtures: &FixtureQuery<&TileId>,
 ) -> Option<(TileId, ItemId)> {
-    if let Some(locator) = item_in_inventory(item_kind, &pawn.inventory) {
+    if let Some(locator) =
+        item_in_inventory(pawn_pos, item_kind, &pawn.inventory)
+    {
         return Some((*pawn_pos, locator.item_id()));
     }
 
@@ -389,8 +482,9 @@ pub fn nearest_fixture_with_item(
     // find nearest fixture that contains item
     let mut nearest = None;
     for (fixture, fixture_pos) in fixtures.query.iter() {
-        let item_id = item_in_inventory(target_kind, &fixture.inventory);
-        let Some(item_id) = item_id else {
+        let Some(loc) =
+            item_in_inventory(current_pos, target_kind, &fixture.inventory)
+        else {
             continue;
         };
 
@@ -407,7 +501,7 @@ pub fn nearest_fixture_with_item(
         nearest = Some(ItemLocator::InFixture(
             fixture.id,
             *fixture_pos,
-            item_id,
+            loc.item_id(),
             distance,
         ));
     }
@@ -415,11 +509,12 @@ pub fn nearest_fixture_with_item(
 }
 
 pub fn item_in_inventory(
+    pawn_pos: &TileId,
     item: &ItemKind,
     inventory: &Vec<(ItemId, ItemKind)>,
 ) -> Option<ItemLocator> {
     inventory
         .iter()
         .find(|(_, kind)| kind == item)
-        .map(|(id, _)| *id)
+        .map(|(id, _)| ItemLocator::InInventory(*id, *pawn_pos))
 }
