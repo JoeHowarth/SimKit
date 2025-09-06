@@ -26,10 +26,15 @@ impl<T: SimId> TileMapIndex<T> {
     }
 
     #[inline]
-    pub fn clear(&mut self, tile: TileId) {
+    pub fn remove(&mut self, tile: TileId, id: T) -> Option<T> {
         if let Some(cell) = self.0.get_mut(tile) {
-            *cell = None;
+            let found = cell.take();
+            if let Some(found) = found {
+                assert_eq!(found, id);
+                return Some(id);
+            }
         }
+        return None;
     }
 
     #[inline]
@@ -37,7 +42,7 @@ impl<T: SimId> TileMapIndex<T> {
     /// provided.
     pub fn move_id(&mut self, from: Option<&mut TileId>, to: TileId, id: T) {
         if let Some(f) = from {
-            self.clear(*f);
+            self.remove(*f, id);
             *f = to;
         }
         self.set(to, id);
@@ -59,7 +64,20 @@ mod tests {
 
     #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Ord, PartialOrd)]
     struct FooId(u64);
+
+    #[derive(Component)]
+    struct Foo(FooId);
+
+    impl HasSimId for Foo {
+        type Id = FooId;
+
+        fn id(&self) -> Self::Id {
+            self.0
+        }
+    }
+
     impl SimId for FooId {
+        type Type = Foo;
         fn from_u64(v: u64) -> Self {
             Self(v)
         }
@@ -83,7 +101,7 @@ mod tests {
         idx.move_id(Some(&mut prev), b, FooId(1));
         assert_eq!(idx.get(a), None);
         assert_eq!(idx.get(b), Some(FooId(1)));
-        idx.clear(b);
+        idx.remove(b, FooId(1));
         assert_eq!(idx.get(b), None);
     }
 }

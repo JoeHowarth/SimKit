@@ -1,12 +1,29 @@
 use std::{collections::VecDeque, fmt::format};
 
 use bevy::prelude::*;
-use simkit_core::grid::{index::TileMapIndex, TileId};
+use simkit_core::{
+    fixed_point::Q40p24,
+    grid::{index::TileMapIndex, TileId},
+};
 
 use crate::{
     model::{
         components::{
-            CarriedBy, Fixture, FixtureKind, FixtureQuery, InFixture, ItemKind, ItemQuery, Pawn, PawnQuery, WorldExt
+            CarriedBy,
+            Fixture,
+            FixtureKind,
+            FixtureQuery,
+            FixtureQueryMut,
+            InFixture,
+            Inventory,
+            Item,
+            ItemKind,
+            ItemQuery,
+            ItemQueryMut,
+            Pawn,
+            PawnQuery,
+            PawnQueryMut,
+            WorldExt,
         },
         ids::*,
     },
@@ -37,18 +54,18 @@ pub enum ToilKind {
     },
     PutDown {
         // consider allowing ItemId or ItemKind here
-        item: ItemId,
-        target: TileId,
+        item_id: ItemId,
+        target_tile: TileId,
     },
     Plant {
         seed_id: ItemId,
         tile_id: TileId,
     },
     Consume {
-        item: ItemId,
+        item_id: ItemId,
     },
     Sleep {
-        fixture: FixtureId,
+        fixture_id: FixtureId,
     },
     Harvest {
         fixture_id: FixtureId,
@@ -65,13 +82,21 @@ pub enum ToilResult {
 struct CompletedTask(TaskId);
 
 pub fn step_jobs(
-    mut pawns: Query<(&mut Pawn, &mut TileId, &mut Job)>,
-    mut pawn_tile_map_index: ResMut<TileMapIndex<PawnId>>,
-    mut items: ItemQuery<&mut TileId>,
-    mut item_tile_map_index: ResMut<TileMapIndex<ItemId>>,
+    mut commands: Commands,
     mut completed_tasks: EventWriter<CompletedTask>,
+    mut pawns: PawnQueryMut<(&mut TileId, &mut Job)>,
+    mut q: Query<&mut TileId>,
+    mut items: ItemQueryMut<(
+        Option<&mut TileId>,
+        Option<&mut CarriedBy>,
+        Option<&mut InFixture>,
+    )>,
+    mut fixtures: FixtureQueryMut<&TileId>,
+    mut pawn_tile_map_index: ResMut<TileMapIndex<PawnId>>,
+    mut item_tile_map_index: ResMut<TileMapIndex<ItemId>>,
+    mut fixture_tile_index: ResMut<TileMapIndex<FixtureId>>,
 ) {
-    for (pawn, mut tile, mut job) in pawns.iter_mut() {
+    for (pawn, (mut tile, mut job)) in pawns.query.iter_mut() {
         if job.current_toil.is_none() {
             let Some(toil) = job.plan.pop_front() else {
                 // If the job is a task, complete it
@@ -89,64 +114,43 @@ pub fn step_jobs(
             job.current_toil = Some(toil);
         }
 
+        let x = q.get_mut(fixtures.index.get(&FixtureId(0)));
+        let y = items.get_mut(&ItemId(0));
+
         // Run the current toil
         let toil = job.current_toil.as_mut().unwrap();
-        match toil {
-            ToilKind::ReserveItem { item } => todo!(),
-            ToilKind::MoveTo { target, path } => {
-                if let Some(next_tile) = path.pop_front() {
-                    assert!(
-                        manhattan(*tile, next_tile) == 1,
-                        "MoveTo toil must move to a neighboring tile"
-                    );
-                    // update both the pawn's tile and the pawn's tile map
-                    // index
-                    pawn_tile_map_index.move_id(
-                        Some(&mut tile),
-                        next_tile,
-                        pawn.id,
-                    );
-                }
-                if path.is_empty() {
-                    // We've reached the target tile
-                    assert_eq!(
-                        *tile, *target,
-                        "MoveTo toil must end at the target tile"
-                    );
-                    info!(
-                        "Pawn {:?} has reached the target tile {:?}",
-                        pawn.id, target
-                    );
-                    job.current_toil = None;
-                }
-            }
-            ToilKind::PickUp { item: item_id } => {
-                //
-                let Some(item) = items.get(item_id) else {
-                    return ToilResult::Failed(format!(
-                        "Item {:?} not found",
-                        item_id
-                    ));
-                };
-            }
-            ToilKind::PutDown { item, target } => todo!(),
-            ToilKind::Plant { seed_id, tile_id } => todo!(),
-            ToilKind::Consume { item } => todo!(),
-            ToilKind::Sleep { fixture } => todo!(),
-            ToilKind::Harvest { fixture_id } => todo!(),
-        }
+        // step_toil(
+        //     commands,
+        //     &mut pawn,
+        //     &mut tile,
+        //     &mut toil,
+        //     pawn_tile_map_index,
+        //     &mut items,
+        //     &mut fixtures,
+        //     item_tile_map_index,
+        //     fixture_tile_index,
+        // );
+        todo!()
     }
 }
 
-pub fn step_toil(
+pub fn step_toil<'a>(
     mut commands: Commands,
     pawn: &mut Pawn,
-    tile: &mut TileId,
+    pawn_tile: &mut TileId,
     toil: &mut ToilKind,
     mut pawn_tile_map_index: ResMut<TileMapIndex<PawnId>>,
-    mut items: ItemQuery<(&mut TileId, Option<&mut CarriedBy>, Option<&mut InFixture>)>,
+    items: &mut ItemQueryMut<
+        (
+            Option<&mut TileId>,
+            Option<&mut CarriedBy>,
+            Option<&mut InFixture>,
+        ),
+        (Without<PawnId>, Without<FixtureId>),
+    >,
+    fixtures: &mut FixtureQueryMut<&TileId>,
     mut item_tile_map_index: ResMut<TileMapIndex<ItemId>>,
-    mut completed_tasks: EventWriter<CompletedTask>,
+    mut fixture_tile_index: ResMut<TileMapIndex<FixtureId>>,
 ) -> ToilResult {
     match toil {
         ToilKind::ReserveItem { item } => {
@@ -156,7 +160,7 @@ pub fn step_toil(
         ToilKind::MoveTo { target, path } => {
             if let Some(next_tile) = path.pop_front() {
                 assert!(
-                    manhattan(*tile, next_tile) == 1,
+                    manhattan(*pawn_tile, next_tile) == 1,
                     "MoveTo toil must move to a neighboring tile"
                 );
 
@@ -165,7 +169,7 @@ pub fn step_toil(
                 // update both the pawn's tile and the pawn's tile map
                 // index
                 pawn_tile_map_index.move_id(
-                    Some(&mut tile),
+                    Some(&mut *pawn_tile),
                     next_tile,
                     pawn.id,
                 );
@@ -176,7 +180,7 @@ pub fn step_toil(
 
             // We've reached the target tile
             assert_eq!(
-                *tile, *target,
+                *pawn_tile, *target,
                 "MoveTo toil must end at the target tile"
             );
             info!(
@@ -186,44 +190,164 @@ pub fn step_toil(
             return ToilResult::Done;
         }
         ToilKind::PickUp { item_loc } => {
-            //
             let item_id = item_loc.item_id();
-            let (item, (_, carried_by, in_fixture)) = items.get(&item_id);
+            let (item, (carried_by, in_fixture)) = items.get(&item_id);
+
+            if manhattan(*pawn_tile, item_loc.tile_id()) > 1 {
+                return ToilResult::Failed(format!(
+                    "Invalid PickUp toil: item not adjacent pawn_pos: \
+                     {pawn_tile:?} item_pos: {:?}",
+                    item_loc.tile_id()
+                ));
+            }
 
             match item_loc {
-                ItemLocator::InInventory(item_id, tile_id) => {
+                ItemLocator::InInventory(item_id, item_tile) => {
                     warn!(
                         "PickUp toil should not be planned if item already in \
                          inventory"
                     );
                     assert_eq!(carried_by, Some(&CarriedBy(pawn.id)));
-                    assert_eq!(pawn.inventory.)
+                    assert!(pawn.inventory.contains(item_id));
+                    assert_eq!(in_fixture, None);
                     return ToilResult::Done;
                 }
                 ItemLocator::OnGround(item_id, item_tile, _) => {
-                    if manhattan(*tile, *item_tile) > 1 {
-                        return ToilResult::Failed(format!(
-                            "Invalid PickUp toil: item not adjacent pawn_pos: \
-                             {tile:?} item_pos: {item_tile:?}",
-                        ));
-                    }
-                    item_tile_map_index.
+                    item_tile_map_index.remove(*item_tile, *item_id);
+                    commands
+                        .entity(items.entity(item_id))
+                        .insert(CarriedBy(pawn.id));
+                    pawn.inventory.add((*item_id, item.kind));
                 }
-                ItemLocator::InFixture(fixture_id, tile_id, item_id, _) => {
-                    todo!()
+                ItemLocator::InFixture(fixture_id, item_tile, item_id, _) => {
+                    assert_eq!(carried_by, None);
+                    assert_eq!(in_fixture, Some(&InFixture(*fixture_id)));
+                    commands
+                        .entity(items.entity(item_id))
+                        .remove::<InFixture>()
+                        .insert(CarriedBy(pawn.id));
+                    let (mut fixture, _) = fixtures.get_mut(fixture_id);
+                    fixture.inventory.remove(&item_id);
+                    pawn.inventory.add((*item_id, item.kind));
                 }
             }
-
-            // check if item is on ground
-
-            // check if item is in a fixture
-            todo!()
+            return ToilResult::Done;
         }
-        ToilKind::PutDown { item, target } => todo!(),
-        ToilKind::Plant { seed_id, tile_id } => todo!(),
-        ToilKind::Consume { item } => todo!(),
-        ToilKind::Sleep { fixture } => todo!(),
-        ToilKind::Harvest { fixture_id } => todo!(),
+        ToilKind::PutDown {
+            item_id,
+            target_tile,
+        } => {
+            assert!(pawn.inventory.contains(&item_id), "Item not in inventory");
+            let (_, (carried_by, in_fixture)) = items.get(item_id);
+            assert_eq!(carried_by, Some(&CarriedBy(pawn.id)));
+            assert_eq!(in_fixture, None);
+            pawn.inventory.remove(&item_id);
+            item_tile_map_index.move_id(None, *target_tile, *item_id);
+            commands.entity(items.entity(item_id)).remove::<CarriedBy>();
+
+            return ToilResult::Done;
+        }
+        ToilKind::Plant { seed_id, tile_id } => {
+            // Check index invariants
+            let (item, (carried_by, in_fixture)) = items.get(seed_id);
+            assert_eq!(carried_by, Some(&CarriedBy(pawn.id)));
+            assert_eq!(in_fixture, None);
+            pawn.inventory.remove(&seed_id);
+
+            // Create new fixture
+            let fixture_id = fixtures.index.alloc(None);
+            let fixture_entity = commands
+                .spawn((
+                    Fixture {
+                        id: fixture_id,
+                        kind: FixtureKind::BerryBush,
+                        inventory: Inventory::default(),
+                        harvest_countdown: Some(100),
+                    },
+                    *tile_id,
+                    Name::new(format!("BerryBush#{}", fixture_id.0)),
+                ))
+                .id();
+            fixtures.index.insert(fixture_id, fixture_entity);
+            fixture_tile_index.move_id(None, *tile_id, fixture_id);
+
+            // Update item components
+            commands
+                .entity(items.entity(seed_id))
+                .remove::<CarriedBy>()
+                .insert(InFixture(fixture_id));
+
+            return ToilResult::Done;
+        }
+        ToilKind::Harvest { fixture_id } => {
+            let (mut fixture, fixture_tile) = fixtures.get_mut(fixture_id);
+
+            // Check preconditions
+            assert!(
+                manhattan(*pawn_tile, *fixture_tile) == 1,
+                "Harvest toil must be adjacent to the fixture"
+            );
+            assert_eq!(fixture.kind, FixtureKind::BerryBush);
+            assert_eq!(
+                fixture.harvest_countdown,
+                Some(0),
+                "Fixture is not ready to harvest"
+            );
+
+            // Update fixture
+            fixture.harvest_countdown = None;
+
+            // Create new item
+            let item_id = items.index.alloc(None);
+            let item_entity = commands
+                .spawn((
+                    Item {
+                        id: item_id,
+                        kind: ItemKind::Berry,
+                        qty: 1,
+                    },
+                    Name::new(format!("Berry#{}", item_id.0)),
+                    CarriedBy(pawn.id),
+                ))
+                .id();
+            items.index.insert(item_id, item_entity);
+
+            // Update inventory
+            pawn.inventory.add((item_id, ItemKind::Berry));
+
+            return ToilResult::Done;
+        }
+        ToilKind::Consume { item_id } => {
+            assert!(pawn.inventory.contains(&item_id), "Item not in inventory");
+            let (item, (carried_by, in_fixture)) = items.get(item_id);
+            assert_eq!(carried_by, Some(&CarriedBy(pawn.id)));
+            assert_eq!(in_fixture, None);
+            assert_eq!(item.kind, ItemKind::Berry);
+            assert!(pawn.inventory.contains(&item_id));
+            pawn.inventory.remove(&item_id);
+
+            commands.entity(items.entity(item_id)).despawn();
+
+            return ToilResult::Done;
+        }
+        ToilKind::Sleep { fixture_id } => {
+            let (fixture, (fixture_tile)) = fixtures.get(fixture_id);
+            assert_eq!(fixture.kind, FixtureKind::SleepingPad);
+            assert!(
+                manhattan(*pawn_tile, *fixture_tile) <= 1,
+                "Sleep toil must be adjacent to or on top of the sleeping \
+                 fixture"
+            );
+
+            // Update pawn
+            if pawn.sleep >= Q40p24::from(0.1) {
+                pawn.sleep -= Q40p24::from(0.1);
+                return ToilResult::Running;
+            } else {
+                pawn.sleep = Q40p24::ZERO;
+                return ToilResult::Done;
+            }
+        }
     }
 }
 
@@ -332,7 +456,7 @@ pub fn build_sleep_plan(
             path: manhattan_path(*pawn_pos, *sleeping_pad_pos),
         },
         ToilKind::Sleep {
-            fixture: sleeping_pad.id,
+            fixture_id: sleeping_pad.id,
         },
     ]))
 }
@@ -353,7 +477,7 @@ pub fn build_eat_plan(
         return Err(format!("Failed to acquire item {:?}", ItemKind::Berry));
     };
     plan.push_back(ToilKind::Consume {
-        item: item_locator.item_id(),
+        item_id: item_locator.item_id(),
     });
     Ok(plan)
 }
@@ -365,9 +489,11 @@ fn build_acquire_item_plan(
     items: &ItemQuery<&TileId>,
     fixtures: &FixtureQuery<&TileId>,
 ) -> Option<(VecDeque<ToilKind>, ItemLocator)> {
-    if let Some(loc) = item_in_inventory(pawn_pos, item_kind, &pawn.inventory) {
-        // We already have the item!
-        return Some((VecDeque::new(), loc));
+    if let Some(item_id) = pawn.inventory.find(*item_kind) {
+        return Some((
+            VecDeque::new(),
+            ItemLocator::InInventory(item_id, *pawn_pos),
+        ));
     }
 
     let on_ground = nearest_item_on_ground(item_kind, pawn_pos, items);

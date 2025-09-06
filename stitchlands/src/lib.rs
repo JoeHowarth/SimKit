@@ -193,45 +193,45 @@ fn auto_enter_ingame_if_headless(
     }
 }
 
-fn headless_exit_after_ticks(
-    cli: Option<Res<CliOptions>>,
-    playback: Res<Playback>,
-    _budget: Res<EditBudget>,
-    _rng: Res<RngResource>,
-    _world_tag_q: Query<Entity, With<WorldTag>>,
-    pawn_q: Query<(&Pawn, &TileId)>,
-    item_q: Query<(&Item, &TileId)>,
-    fixture_q: Query<(&Fixture, &TileId)>,
-    // todo
-    // task_q: Query<&TaskId>,
-    scenario_meta: Option<Res<LoadedScenarioMeta>>,
-    mut exit: EventWriter<AppExit>,
-) {
-    let Some(cli) = cli else { return };
-    if cli.mode != RunMode::Headless {
-        return;
-    }
-    if let Some(limit) = cli.ticks {
-        if (playback.tick.0 as u64) >= limit {
-            // Extract a baseline snapshot and print a stable hash for
-            // determinism testing
-            // let scenario_seed = scenario_meta.as_ref().and_then(|m|
-            // m.sim_seed); let pawns_vec: Vec<_> =
-            // pawn_q.iter().map(|(p, pos)| (*p, *pos)).collect();
-            // let items_vec: Vec<_> = item_q.iter().map(|(it, pos)|
-            // (it.clone(), *pos)).collect(); let fixtures_vec:
-            // Vec<_> = fixture_q.iter().map(|(f, pos)| (f.clone(),
-            // *pos)).collect(); let tasks_vec: Vec<_> =
-            // task_q.iter().map(|(t, _)| (t.clone(), *pos)).collect();
-            // let world_snap =
-            //     build_world_snapshot(&playback, scenario_seed, &pawns_vec,
-            // &items_vec, &zones_vec); let hash =
-            // stable_hash_json(&world_snap); println!("SNAP:{}",
-            // hash); exit.write(AppExit::Success);
-        }
-        todo!()
-    }
-}
+// fn headless_exit_after_ticks(
+//     cli: Option<Res<CliOptions>>,
+//     playback: Res<Playback>,
+//     _budget: Res<EditBudget>,
+//     _rng: Res<RngResource>,
+//     _world_tag_q: Query<Entity, With<WorldTag>>,
+//     pawn_q: Query<(&Pawn, &TileId)>,
+//     item_q: Query<(&Item, &TileId)>,
+//     fixture_q: Query<(&Fixture, &TileId)>,
+//     // todo
+//     // task_q: Query<&TaskId>,
+//     scenario_meta: Option<Res<LoadedScenarioMeta>>,
+//     mut exit: EventWriter<AppExit>,
+// ) {
+//     let Some(cli) = cli else { return };
+//     if cli.mode != RunMode::Headless {
+//         return;
+//     }
+//     if let Some(limit) = cli.ticks {
+//         if (playback.tick.0 as u64) >= limit {
+//             // Extract a baseline snapshot and print a stable hash for
+//             // determinism testing
+//             // let scenario_seed = scenario_meta.as_ref().and_then(|m|
+//             // m.sim_seed); let pawns_vec: Vec<_> =
+//             // pawn_q.iter().map(|(p, pos)| (*p, *pos)).collect();
+//             // let items_vec: Vec<_> = item_q.iter().map(|(it, pos)|
+//             // (it.clone(), *pos)).collect(); let fixtures_vec:
+//             // Vec<_> = fixture_q.iter().map(|(f, pos)| (f.clone(),
+//             // *pos)).collect(); let tasks_vec: Vec<_> =
+//             // task_q.iter().map(|(t, _)| (t.clone(), *pos)).collect();
+//             // let world_snap =
+//             //     build_world_snapshot(&playback, scenario_seed, &pawns_vec,
+//             // &items_vec, &zones_vec); let hash =
+//             // stable_hash_json(&world_snap); println!("SNAP:{}",
+//             // hash); exit.write(AppExit::Success);
+//         }
+//         todo!()
+//     }
+// }
 
 // Event to trigger saving a snapshot to disk (RON format)
 #[derive(Event)]
