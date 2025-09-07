@@ -231,13 +231,21 @@ where
     }
 }
 
-pub type FixtureQuery<'w, 's, D, F = ()> = IdQuery<'w, 's, Fixture, D, F>;
-pub type ItemQuery<'w, 's, D, F = ()> = IdQuery<'w, 's, Item, D, F>;
-pub type PawnQuery<'w, 's, D, F = ()> = IdQuery<'w, 's, Pawn, D, F>;
+type OnlyItem = (Without<Pawn>, Without<Fixture>);
+type OnlyPawn = (Without<Item>, Without<Fixture>);
+type OnlyFixture = (Without<Pawn>, Without<Item>);
 
-pub type FixtureQueryMut<'w, 's, D, F = ()> = IdQueryMut<'w, 's, Fixture, D, F>;
-pub type ItemQueryMut<'w, 's, D, F = ()> = IdQueryMut<'w, 's, Item, D, F>;
-pub type PawnQueryMut<'w, 's, D, F = ()> = IdQueryMut<'w, 's, Pawn, D, F>;
+pub type FixtureQuery<'w, 's, D, F = ()> =
+    IdQuery<'w, 's, Fixture, D, (F, OnlyFixture)>;
+pub type ItemQuery<'w, 's, D, F = ()> = IdQuery<'w, 's, Item, D, (F, OnlyItem)>;
+pub type PawnQuery<'w, 's, D, F = ()> = IdQuery<'w, 's, Pawn, D, (F, OnlyPawn)>;
+
+pub type FixtureQueryMut<'w, 's, D, F = ()> =
+    IdQueryMut<'w, 's, Fixture, D, (F, OnlyFixture)>;
+pub type ItemQueryMut<'w, 's, D, F = ()> =
+    IdQueryMut<'w, 's, Item, D, (F, OnlyItem)>;
+pub type PawnQueryMut<'w, 's, D, F = ()> =
+    IdQueryMut<'w, 's, Pawn, D, (F, OnlyPawn)>;
 
 pub trait WorldExt {
     fn get_simid<Id: SimId>(&self, id: &Id) -> (&Id::Type, Entity);

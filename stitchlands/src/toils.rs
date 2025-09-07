@@ -21,14 +21,11 @@ use crate::{
             ItemQuery,
             ItemQueryMut,
             Pawn,
-            PawnQuery,
             PawnQueryMut,
-            WorldExt,
         },
         ids::*,
     },
     tasks::{
-        item_in_inventory,
         manhattan,
         nearest_fixture_with_item,
         nearest_item_on_ground,
@@ -96,7 +93,7 @@ pub fn step_jobs(
     mut item_tile_map_index: ResMut<TileMapIndex<ItemId>>,
     mut fixture_tile_index: ResMut<TileMapIndex<FixtureId>>,
 ) {
-    for (pawn, (mut tile, mut job)) in pawns.query.iter_mut() {
+    for (mut pawn, (mut tile, mut job)) in pawns.query.iter_mut() {
         if job.current_toil.is_none() {
             let Some(toil) = job.plan.pop_front() else {
                 // If the job is a task, complete it
@@ -119,38 +116,34 @@ pub fn step_jobs(
 
         // Run the current toil
         let toil = job.current_toil.as_mut().unwrap();
-        // step_toil(
-        //     commands,
-        //     &mut pawn,
-        //     &mut tile,
-        //     &mut toil,
-        //     pawn_tile_map_index,
-        //     &mut items,
-        //     &mut fixtures,
-        //     item_tile_map_index,
-        //     fixture_tile_index,
-        // );
-        todo!()
+        step_toil(
+            &mut commands,
+            toil,
+            &mut pawn,
+            &mut tile,
+            &mut items,
+            &mut fixtures,
+            &mut pawn_tile_map_index,
+            &mut item_tile_map_index,
+            &mut fixture_tile_index,
+        );
     }
 }
 
 pub fn step_toil<'a>(
-    mut commands: Commands,
+    commands: &mut Commands,
+    toil: &mut ToilKind,
     pawn: &mut Pawn,
     pawn_tile: &mut TileId,
-    toil: &mut ToilKind,
-    mut pawn_tile_map_index: ResMut<TileMapIndex<PawnId>>,
-    items: &mut ItemQueryMut<
-        (
-            Option<&mut TileId>,
-            Option<&mut CarriedBy>,
-            Option<&mut InFixture>,
-        ),
-        (Without<PawnId>, Without<FixtureId>),
-    >,
+    items: &mut ItemQueryMut<(
+        Option<&mut TileId>,
+        Option<&mut CarriedBy>,
+        Option<&mut InFixture>,
+    )>,
     fixtures: &mut FixtureQueryMut<&TileId>,
-    mut item_tile_map_index: ResMut<TileMapIndex<ItemId>>,
-    mut fixture_tile_index: ResMut<TileMapIndex<FixtureId>>,
+    pawn_tile_map_index: &mut ResMut<TileMapIndex<PawnId>>,
+    item_tile_map_index: &mut ResMut<TileMapIndex<ItemId>>,
+    fixture_tile_index: &mut ResMut<TileMapIndex<FixtureId>>,
 ) -> ToilResult {
     match toil {
         ToilKind::ReserveItem { item } => {
@@ -191,7 +184,8 @@ pub fn step_toil<'a>(
         }
         ToilKind::PickUp { item_loc } => {
             let item_id = item_loc.item_id();
-            let (item, (carried_by, in_fixture)) = items.get(&item_id);
+            let (item, (item_pos, carried_by, in_fixture)) =
+                items.get(&item_id);
 
             if manhattan(*pawn_tile, item_loc.tile_id()) > 1 {
                 return ToilResult::Failed(format!(
@@ -201,7 +195,7 @@ pub fn step_toil<'a>(
                 ));
             }
 
-            match item_loc {
+            match &item_loc {
                 ItemLocator::InInventory(item_id, item_tile) => {
                     warn!(
                         "PickUp toil should not be planned if item already in \
@@ -213,9 +207,11 @@ pub fn step_toil<'a>(
                     return ToilResult::Done;
                 }
                 ItemLocator::OnGround(item_id, item_tile, _) => {
+                    assert_eq!(item_pos, Some(&item_loc.tile_id()));
                     item_tile_map_index.remove(*item_tile, *item_id);
                     commands
                         .entity(items.entity(item_id))
+                        .remove::<TileId>()
                         .insert(CarriedBy(pawn.id));
                     pawn.inventory.add((*item_id, item.kind));
                 }
@@ -238,18 +234,23 @@ pub fn step_toil<'a>(
             target_tile,
         } => {
             assert!(pawn.inventory.contains(&item_id), "Item not in inventory");
-            let (_, (carried_by, in_fixture)) = items.get(item_id);
+            let (_, (item_pos, carried_by, in_fixture)) = items.get(item_id);
             assert_eq!(carried_by, Some(&CarriedBy(pawn.id)));
+            assert_eq!(item_pos, None);
             assert_eq!(in_fixture, None);
             pawn.inventory.remove(&item_id);
             item_tile_map_index.move_id(None, *target_tile, *item_id);
-            commands.entity(items.entity(item_id)).remove::<CarriedBy>();
+            commands
+                .entity(items.entity(item_id))
+                .insert(*target_tile)
+                .remove::<CarriedBy>();
 
             return ToilResult::Done;
         }
         ToilKind::Plant { seed_id, tile_id } => {
             // Check index invariants
-            let (item, (carried_by, in_fixture)) = items.get(seed_id);
+            let (item, (item_pos, carried_by, in_fixture)) = items.get(seed_id);
+            assert_eq!(item_pos, None);
             assert_eq!(carried_by, Some(&CarriedBy(pawn.id)));
             assert_eq!(in_fixture, None);
             pawn.inventory.remove(&seed_id);
@@ -319,7 +320,8 @@ pub fn step_toil<'a>(
         }
         ToilKind::Consume { item_id } => {
             assert!(pawn.inventory.contains(&item_id), "Item not in inventory");
-            let (item, (carried_by, in_fixture)) = items.get(item_id);
+            let (item, (item_pos, carried_by, in_fixture)) = items.get(item_id);
+            assert_eq!(item_pos, None);
             assert_eq!(carried_by, Some(&CarriedBy(pawn.id)));
             assert_eq!(in_fixture, None);
             assert_eq!(item.kind, ItemKind::Berry);
@@ -331,7 +333,7 @@ pub fn step_toil<'a>(
             return ToilResult::Done;
         }
         ToilKind::Sleep { fixture_id } => {
-            let (fixture, (fixture_tile)) = fixtures.get(fixture_id);
+            let (fixture, fixture_tile) = fixtures.get(fixture_id);
             assert_eq!(fixture.kind, FixtureKind::SleepingPad);
             assert!(
                 manhattan(*pawn_tile, *fixture_tile) <= 1,
