@@ -147,18 +147,23 @@ pub fn load_scenario_from_def(
     );
 
     // Items on Ground
+    // Place tile-defined items at their tile positions.
+    let map_items: Vec<super::model::ItemDef> = scenario_def
+        .map
+        .tiles
+        .iter()
+        .filter_map(|t| t.item.as_ref().map(|it| {
+            let mut it2 = it.clone();
+            it2.pos = Some(t.pos);
+            it2
+        }))
+        .collect();
     spawn_items_from_def(
         &mut commands,
         &mut rng.0,
         map_size,
         &mut item_index,
-        &scenario_def
-            .map
-            .tiles
-            .iter()
-            .filter_map(|t| t.item.as_ref())
-            .cloned()
-            .collect::<Vec<_>>(),
+        &map_items,
         &mut item_tile_index,
     );
 
@@ -340,15 +345,27 @@ fn spawn_fixtures_from_def(
             Some(pos) => unique_pos(&mut used_positions, pos, &mut gen),
             None => unique_pos(&mut used_positions, gen(), &mut gen),
         };
-
-        let inventory = spawn_items_from_def(
-            commands,
-            rng,
-            map_size,
-            item_index,
-            &it.inventory,
-            item_tile_index,
-        );
+        // Build fixture inventory by spawning items attached to the fixture,
+        // not on the ground.
+        let mut inventory = Inventory::default();
+        for def in it.inventory.iter() {
+            let typed_item = item_index.alloc(def.id.map(ItemId));
+            let kind = ItemKind::from_str(&def.kind).unwrap();
+            let entity = commands
+                .spawn((
+                    crate::WorldTag,
+                    Name::new(format!("Item#{}", typed_item.0)),
+                    Item {
+                        id: typed_item,
+                        kind,
+                        qty: def.qty,
+                    },
+                    InFixture(typed),
+                ))
+                .id();
+            item_index.insert(typed_item, entity);
+            inventory.add((typed_item, kind));
+        }
         let kind = FixtureKind::from_str(&it.kind).unwrap();
 
         let entity = commands
