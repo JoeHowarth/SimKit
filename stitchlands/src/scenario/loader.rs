@@ -11,7 +11,6 @@ use super::model::ScenarioDef;
 use crate::{
     model::{components::*, ids::*},
     snapshot::load_world_snapshot,
-    tasks::{Designation, Needs, TaskRef},
     world::WorldGrid,
     CliOptions,
     RngResource,
@@ -26,20 +25,17 @@ pub fn load_scenario(
     mut commands: Commands,
     cli: Option<Res<CliOptions>>,
     mut rng: ResMut<RngResource>,
-    // mut pawn_alloc: ResMut<IdAllocator<PawnId>>,
     mut pawn_index: ResMut<IdIndex<PawnId>>,
-    // mut item_alloc: ResMut<IdAllocator<ItemId>>,
     mut item_index: ResMut<IdIndex<ItemId>>,
-    // mut fixture_alloc: ResMut<IdAllocator<FixtureId>>,
     mut fixture_index: ResMut<IdIndex<FixtureId>>,
-    // mut task_alloc: ResMut<IdAllocator<TaskId>>,
     mut task_index: ResMut<IdIndex<TaskId>>,
 ) {
     // Resources provided by plugin init
-    let scenario_opt = cli.as_deref().and_then(|c| c.scenario.as_ref()).cloned();
 
     // If snapshot path provided, load world from snapshot RON and return
-    if let Some(snap_path) = cli.as_deref().and_then(|c| c.snapshot.as_ref()).cloned() {
+    if let Some(snap_path) =
+        cli.as_deref().and_then(|c| c.snapshot.as_ref()).cloned()
+    {
         let s = fs::read_to_string(&snap_path).expect("read snapshot");
         let snap: crate::snapshot::WorldSnapshot =
             ron::de::from_str(&s).expect("parse snapshot RON");
@@ -71,22 +67,17 @@ pub fn load_scenario(
         return;
     }
 
+    let scenario_path = cli
+        .as_deref()
+        .and_then(|c| c.scenario.as_ref())
+        .cloned()
+        .expect("Either snapshot or scenario must be provided");
+
     // Parse editable ScenarioDef from RON
-    let scenario_def: ScenarioDef = if let Some(path) = scenario_opt {
-        let s = fs::read_to_string(&path).expect("read scenario");
-        ron::de::from_str::<ScenarioDef>(&s).expect("parse scenario RON")
-    } else {
-        // Minimal default scenario for dev
-        ScenarioDef {
-            sim_seed: None,
-            map: Default::default(),
-            pawns: Vec::new(),
-            items: Vec::new(),
-            fixtures: Vec::new(),
-            tasks: Vec::new(),
-            defaults: None,
-        }
-    };
+    let scenario_str =
+        fs::read_to_string(&scenario_path).expect("read scenario");
+    let scenario_def =
+        ron::from_str(&scenario_str).expect("parse scenario RON");
 
     load_scenario_from_def(
         commands,
@@ -104,9 +95,7 @@ pub fn load_scenario(
 pub fn load_scenario_from_def(
     mut commands: Commands,
     mut rng: ResMut<RngResource>,
-    // mut pawn_alloc: ResMut<IdAllocator<PawnId>>,
     mut pawn_index: ResMut<IdIndex<PawnId>>,
-    // mut item_alloc: ResMut<IdAllocator<ItemId>>,
     mut item_index: ResMut<IdIndex<ItemId>>,
     mut fixture_index: ResMut<IdIndex<FixtureId>>,
     mut task_index: ResMut<IdIndex<TaskId>>,
@@ -130,7 +119,8 @@ pub fn load_scenario_from_def(
     };
     let mut pawn_tile_index: TileMapIndex<PawnId> = TileMapIndex::new(cfg);
     let mut item_tile_index: TileMapIndex<ItemId> = TileMapIndex::new(cfg);
-    let mut fixture_tile_index: TileMapIndex<FixtureId> = TileMapIndex::new(cfg);
+    let mut fixture_tile_index: TileMapIndex<FixtureId> =
+        TileMapIndex::new(cfg);
 
     // Pawns
     spawn_pawns_from_def(
@@ -140,14 +130,7 @@ pub fn load_scenario_from_def(
         &mut pawn_index,
         &scenario_def.pawns,
         &mut pawn_tile_index,
-    );
-    // Items
-    spawn_items_from_def(
-        &mut commands,
-        &mut rng.0,
-        map_size,
         &mut item_index,
-        &scenario_def.items,
         &mut item_tile_index,
     );
 
@@ -159,6 +142,24 @@ pub fn load_scenario_from_def(
         &mut fixture_index,
         &scenario_def.fixtures,
         &mut fixture_tile_index,
+        &mut item_index,
+        &mut item_tile_index,
+    );
+
+    // Items on Ground
+    spawn_items_from_def(
+        &mut commands,
+        &mut rng.0,
+        map_size,
+        &mut item_index,
+        &scenario_def
+            .map
+            .tiles
+            .iter()
+            .filter_map(|t| t.item.as_ref())
+            .cloned()
+            .collect::<Vec<_>>(),
+        &mut item_tile_index,
     );
 
     // Designations
@@ -194,7 +195,11 @@ fn clamp_pos(mut p: TileId, size: super::model::MapSize) -> TileId {
     p
 }
 
-fn norm_rect(a: TileId, b: TileId, size: super::model::MapSize) -> (TileId, TileId) {
+fn norm_rect(
+    a: TileId,
+    b: TileId,
+    size: super::model::MapSize,
+) -> (TileId, TileId) {
     let a = clamp_pos(a, size);
     let b = clamp_pos(b, size);
     let minx = a.x.min(b.x);
@@ -226,30 +231,40 @@ fn spawn_pawns_from_def(
     index: &mut IdIndex<PawnId>,
     pawns: &[super::model::PawnDef],
     tile_index: &mut TileMapIndex<PawnId>,
+    item_index: &mut IdIndex<ItemId>,
+    item_tile_index: &mut TileMapIndex<ItemId>,
 ) {
     use std::collections::HashSet;
     let mut used_positions: HashSet<(i32, i32)> = HashSet::new();
-    let mut gen = || rand_pos(rng, map_size);
     for (i, p) in pawns.iter().enumerate() {
         let typed = index.alloc(p.id.map(PawnId));
         let name = p.name.clone().unwrap_or_else(|| format!("Pawn{}", i + 1));
+
+        let mut gen = || rand_pos(rng, map_size);
         let pos = match p.pos {
             Some(pos) => unique_pos(&mut used_positions, pos, &mut gen),
             None => unique_pos(&mut used_positions, gen(), &mut gen),
         };
-        let needs = Needs {
-            hunger: p.needs.hunger,
-            rest: p.needs.rest,
-        };
+
+        let inventory = spawn_items_from_def(
+            commands,
+            rng,
+            map_size,
+            item_index,
+            &p.inventory,
+            item_tile_index,
+        );
+
         let entity = commands
             .spawn((
                 crate::WorldTag,
                 Name::new(name),
                 Pawn {
                     id: typed,
-                    inventory: p.inventory.clone(),
+                    inventory,
+                    sleep: p.sleep.unwrap_or(100).into(),
+                    hunger: p.hunger.unwrap_or(100).into(),
                 },
-                needs,
                 pos,
             ))
             .id();
@@ -267,23 +282,29 @@ fn spawn_items_from_def(
     index: &mut IdIndex<ItemId>,
     items: &[super::model::ItemDef],
     tile_index: &mut TileMapIndex<ItemId>,
-) {
+) -> Inventory {
     use std::collections::HashSet;
     let mut used_positions: HashSet<(i32, i32)> = HashSet::new();
     let mut gen = || rand_pos(rng, map_size);
+
+    let mut inventory = Inventory::default();
+
     for it in items.iter() {
         let typed = index.alloc(it.id.map(ItemId));
+        let kind = ItemKind::from_str(&it.kind).unwrap();
         let pos = match it.pos {
             Some(pos) => unique_pos(&mut used_positions, pos, &mut gen),
             None => unique_pos(&mut used_positions, gen(), &mut gen),
         };
+
+        // Spawn item
         let entity = commands
             .spawn((
                 crate::WorldTag,
                 Name::new(format!("Item#{}", typed.0)),
                 Item {
                     id: typed,
-                    kind: ItemKind::from_str(&it.kind).unwrap(),
+                    kind,
                     qty: it.qty,
                 },
                 pos,
@@ -291,9 +312,13 @@ fn spawn_items_from_def(
             .id();
         index.insert(typed, entity);
 
+        // Add to inventory
+        inventory.add((typed, kind));
         // Tile index mark
         tile_index.move_id(None, pos, typed);
     }
+
+    inventory
 }
 
 fn spawn_fixtures_from_def(
@@ -303,24 +328,44 @@ fn spawn_fixtures_from_def(
     index: &mut IdIndex<FixtureId>,
     fixtures: &[super::model::FixtureDef],
     tile_index: &mut TileMapIndex<FixtureId>,
+    item_index: &mut IdIndex<ItemId>,
+    item_tile_index: &mut TileMapIndex<ItemId>,
 ) {
     use std::collections::HashSet;
     let mut used_positions: HashSet<(i32, i32)> = HashSet::new();
-    let mut gen = || rand_pos(rng, map_size);
     for it in fixtures.iter() {
         let typed = index.alloc(it.id.map(FixtureId));
+        let mut gen = || rand_pos(rng, map_size);
         let pos = match it.pos {
             Some(pos) => unique_pos(&mut used_positions, pos, &mut gen),
             None => unique_pos(&mut used_positions, gen(), &mut gen),
         };
+
+        let inventory = spawn_items_from_def(
+            commands,
+            rng,
+            map_size,
+            item_index,
+            &it.inventory,
+            item_tile_index,
+        );
+        let kind = FixtureKind::from_str(&it.kind).unwrap();
+
         let entity = commands
             .spawn((
                 crate::WorldTag,
                 Name::new(format!("Fixture#{}", typed.0)),
                 Fixture {
                     id: typed,
-                    kind: FixtureKind::from_str(&it.kind).unwrap(),
-                    inventory: vec![],
+                    harvest_countdown: match it.harvest_countdown {
+                        Some(countdown) => Some(countdown),
+                        None => match kind {
+                            FixtureKind::BerryBush => Some(100),
+                            _ => None,
+                        },
+                    },
+                    kind,
+                    inventory,
                 },
                 pos,
             ))
@@ -329,27 +374,6 @@ fn spawn_fixtures_from_def(
 
         // Tile index mark
         tile_index.move_id(None, pos, typed);
-    }
-}
-
-fn spawn_designations_from_def(
-    commands: &mut Commands,
-    index: &mut IdIndex<TaskId>,
-    designations: &[super::model::TaskDef],
-) {
-    // todo
-    for d in designations.iter() {
-        match d {
-            super::model::TaskDef::Harvest(tile) => {
-                let name = format!("Designation(Harvest @{}, {})", tile.x, tile.y);
-                commands.spawn((
-                    crate::WorldTag,
-                    Name::new(name),
-                    Designation::Harvest(*tile),
-                    TaskRef(None),
-                ));
-            }
-        }
     }
 }
 
@@ -395,10 +419,8 @@ mod tests {
                     id: Some(10),
                     name: Some("Ada".into()),
                     pos: None,
-                    needs: model::NeedsDef {
-                        hunger: 0.5,
-                        rest: 0.8,
-                    },
+                    sleep: Some(50),
+                    hunger: Some(5),
                     inventory: vec![],
                     priorities: Default::default(),
                 },
@@ -406,27 +428,20 @@ mod tests {
                     id: None,
                     name: None,
                     pos: None,
-                    needs: model::NeedsDef {
-                        hunger: 0.6,
-                        rest: 0.7,
-                    },
+                    sleep: Some(50),
+                    hunger: Some(50),
                     inventory: vec![],
                     priorities: Default::default(),
                 },
             ],
-            items: vec![model::ItemDef {
-                id: None,
-                kind: "Grain".into(),
-                qty: 5,
-                pos: None,
-            }],
-            tasks: vec![model::TaskDef::Harvest(TileId { x: 3, y: 3 })],
-            defaults: None,
             fixtures: vec![model::FixtureDef {
                 id: None,
                 kind: "Stockpile".into(),
                 pos: None,
+                inventory: vec![],
+                harvest_countdown: None,
             }],
+            tasks: vec![],
         };
 
         let mut app = App::new();
@@ -453,17 +468,16 @@ mod tests {
             assert!(pos.x >= 0 && pos.x < 4 && pos.y >= 0 && pos.y < 4);
         }
         // Names contain provided and fallback
-        let names: Vec<String> = pawns.iter().map(|(_, _, n)| n.to_string()).collect();
+        let names: Vec<String> =
+            pawns.iter().map(|(_, _, n)| n.to_string()).collect();
         assert!(names.contains(&"Ada".to_string()));
         assert!(names.iter().any(|s| s == "Pawn2"));
 
-        // Validate items
+        // Validate items: with this ScenarioDef (no items on map, none in
+        // pawns/fixtures), there should be zero items spawned.
         let mut item_q = world.query::<(&Item, &TileId)>();
         let items: Vec<_> = item_q.iter(world).collect();
-        assert_eq!(items.len(), 1);
-        assert!(items[0].0.id.0 >= 1000);
-        let ipos = items[0].1;
-        assert!(ipos.x >= 0 && ipos.x < 4 && ipos.y >= 0 && ipos.y < 4);
+        assert_eq!(items.len(), 0);
 
         // Validate fixtures
         let mut fixture_q = world.query::<(&Fixture, &TileId)>();
@@ -472,14 +486,5 @@ mod tests {
         assert!(fixtures[0].0.id.0 >= 1000);
         let fpos = fixtures[0].1;
         assert!(fpos.x >= 0 && fpos.x < 4 && fpos.y >= 0 && fpos.y < 4);
-
-        // Validate tasks
-        let mut task_q = world.query::<&Designation>();
-        let tasks: Vec<_> = task_q.iter(world).collect();
-        assert_eq!(tasks.len(), 1);
-        assert!(matches!(
-            tasks[0],
-            Designation::Harvest(TileId { x: 3, y: 3 })
-        ));
     }
 }

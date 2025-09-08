@@ -103,8 +103,6 @@ impl Plugin for StitchlandsCorePlugin {
             .init_resource::<RngResource>()
             // Task system core resources
             .init_resource::<tasks::TaskBoard>()
-            .init_resource::<tasks::UniqueTargetRes>()
-            .init_resource::<tasks::LogBuffer>()
             .add_plugins(crate::scenario::ScenarioPlugin)
             .add_event::<SnapshotSaveEvent>()
             // Chain our sub-sets inside KitSystemSet phases
@@ -141,18 +139,6 @@ impl Plugin for StitchlandsCorePlugin {
                 FixedUpdate,
                 (
                     reset_edit_budget.in_set(StitchPreStepSet::ResetEditBudget),
-                    tasks::needs_daemon_emit.in_set(StitchPreStepSet::NeedsDaemonEmit),
-                    tasks::designation_spawner.in_set(StitchPreStepSet::DesignationSpawner),
-                    tasks::task_prune_minimal.in_set(StitchPreStepSet::TaskPrune),
-                    path_cache_prepare_stub.in_set(StitchPreStepSet::PathCachePrepare),
-                    tasks::hard_need_interrupts.in_set(StitchStepSet::HardNeedInterrupts),
-                    tasks::scheduler_assign.in_set(StitchStepSet::SchedulerAssign),
-                    tasks::job_tick.in_set(StitchStepSet::JobTick),
-                    telemetry_sample_stub.in_set(StitchPostStepSet::TelemetrySample),
-                    tasks::release_stale_reservations
-                        .in_set(StitchPostStepSet::ReleaseStaleReservations),
-                    tasks::print_tick_logs.in_set(KitSystemSet::PostStep),
-                    headless_exit_after_ticks.in_set(KitSystemSet::PostStep),
                     sync_tile_index::<Pawn>.in_set(KitSystemSet::PostStep),
                     sync_tile_index::<Item>.in_set(KitSystemSet::PostStep),
                 ),
@@ -172,16 +158,6 @@ fn reset_edit_budget(mut budget: ResMut<EditBudget>) {
     budget.remaining = budget.per_tick;
 }
 
-// 0.a: Stubs for future phases
-fn needs_daemon_emit_stub() {}
-fn designation_spawner_stub() {}
-fn task_prune_stub() {}
-fn path_cache_prepare_stub() {}
-fn hard_need_interrupts_stub() {}
-fn scheduler_assign_stub() {}
-fn job_tick_stub() {}
-fn release_stale_reservations_stub() {}
-fn telemetry_sample_stub() {}
 
 fn auto_enter_ingame_if_headless(
     cli: Option<Res<CliOptions>>,
@@ -251,8 +227,10 @@ fn handle_snapshot_save_events(
     use std::fs;
     let scenario_seed = scenario_meta.as_ref().and_then(|m| m.sim_seed);
     for ev in evr.read() {
-        let pawns_vec: Vec<_> = pawns_q.iter().map(|(p, pos)| (p.clone(), *pos)).collect();
-        let items_vec: Vec<_> = items_q.iter().map(|(it, pos)| (it.clone(), *pos)).collect();
+        let pawns_vec: Vec<_> =
+            pawns_q.iter().map(|(p, pos)| (p.clone(), *pos)).collect();
+        let items_vec: Vec<_> =
+            items_q.iter().map(|(it, pos)| (it.clone(), *pos)).collect();
         let fixtures_vec: Vec<_> = fixtures_q
             .iter()
             .map(|(f, pos)| (f.clone(), *pos))
@@ -266,8 +244,11 @@ fn handle_snapshot_save_events(
             &fixtures_vec,
             &tasks_vec,
         );
-        let pretty = ron::ser::to_string_pretty(&snap, ron::ser::PrettyConfig::default())
-            .expect("serialize snapshot to RON");
+        let pretty = ron::ser::to_string_pretty(
+            &snap,
+            ron::ser::PrettyConfig::default(),
+        )
+        .expect("serialize snapshot to RON");
         if let Err(e) = fs::write(&ev.path, pretty) {
             eprintln!("Failed to write snapshot to {:?}: {}", ev.path, e);
         }

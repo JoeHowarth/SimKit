@@ -4,6 +4,7 @@ use bevy::{
     platform::collections::{HashMap, HashSet},
     prelude::*,
 };
+use serde::{Deserialize, Serialize};
 use simkit_core::{
     fixed_point::Q40p24,
     grid::{index::TileMapIndex, TileId},
@@ -24,7 +25,7 @@ use crate::{
     },
 };
 
-struct TaskPlugin;
+pub struct TaskPlugin;
 
 impl Plugin for TaskPlugin {
     fn build(&self, app: &mut App) {
@@ -33,7 +34,7 @@ impl Plugin for TaskPlugin {
     }
 }
 
-#[derive(PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy,PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub enum TaskSpecKind {
     Harvest,
     Plant,
@@ -64,7 +65,7 @@ pub struct Task {
 impl_hassimid!(Task, TaskId);
 
 #[derive(Component)]
-struct WorkPriority(pub Vec<TaskSpecKind>);
+pub struct WorkPriority(pub Vec<TaskSpecKind>);
 
 #[derive(Component)]
 pub struct Job {
@@ -428,8 +429,10 @@ pub fn neartest_item_position(
     items: &ItemQuery<&TileId>,
     fixtures: &FixtureQuery<&TileId>,
 ) -> Option<(TileId, ItemId)> {
-    if let Some(locator) =
-        item_in_inventory(pawn_pos, item_kind, &pawn.inventory)
+    if let Some(locator) = pawn
+        .inventory
+        .find(*item_kind)
+        .map(|id| ItemLocator::InInventory(id, *pawn_pos))
     {
         return Some((*pawn_pos, locator.item_id()));
     }
@@ -482,8 +485,10 @@ pub fn nearest_fixture_with_item(
     // find nearest fixture that contains item
     let mut nearest = None;
     for (fixture, fixture_pos) in fixtures.query.iter() {
-        let Some(loc) =
-            item_in_inventory(current_pos, target_kind, &fixture.inventory)
+        let Some(loc) = fixture
+            .inventory
+            .find(*target_kind)
+            .map(|id| ItemLocator::InInventory(id, *current_pos))
         else {
             continue;
         };
@@ -506,15 +511,4 @@ pub fn nearest_fixture_with_item(
         ));
     }
     nearest
-}
-
-pub fn item_in_inventory(
-    pawn_pos: &TileId,
-    item: &ItemKind,
-    inventory: &Vec<(ItemId, ItemKind)>,
-) -> Option<ItemLocator> {
-    inventory
-        .iter()
-        .find(|(_, kind)| kind == item)
-        .map(|(id, _)| ItemLocator::InInventory(*id, *pawn_pos))
 }

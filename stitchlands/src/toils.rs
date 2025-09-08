@@ -76,7 +76,7 @@ pub enum ToilResult {
 }
 
 #[derive(Event)]
-struct CompletedTask(TaskId);
+pub struct CompletedTask(pub TaskId);
 
 pub fn step_jobs(
     mut commands: Commands,
@@ -581,7 +581,6 @@ fn manhattan_path(start: TileId, end: TileId) -> VecDeque<TileId> {
         y += dy.signum();
         path.push_back(TileId::new(x, y));
     }
-    path.push_back(end);
     path
 }
 
@@ -605,6 +604,57 @@ mod tests {
                 TileId::new(3, 3),
                 TileId::new(3, 4)
             ])
+        );
+    }
+
+    #[test]
+    fn test_itemlocator_getters_and_distance() {
+        let inv = ItemLocator::InInventory(ItemId(1), TileId::new(5, 5));
+        assert_eq!(inv.item_id(), ItemId(1));
+        assert_eq!(inv.tile_id(), TileId::new(5, 5));
+        assert_eq!(inv.distance(), 0);
+
+        let ground = ItemLocator::OnGround(ItemId(2), TileId::new(1, 2), 7);
+        assert_eq!(ground.item_id(), ItemId(2));
+        assert_eq!(ground.tile_id(), TileId::new(1, 2));
+        assert_eq!(ground.distance(), 7);
+
+        let fixture =
+            ItemLocator::InFixture(FixtureId(3), TileId::new(9, 9), ItemId(4), 2);
+        assert_eq!(fixture.item_id(), ItemId(4));
+        assert_eq!(fixture.tile_id(), TileId::new(9, 9));
+        assert_eq!(fixture.distance(), 2);
+    }
+
+    #[test]
+    fn test_itemlocator_closer_prefers_smaller_distance() {
+        let a = ItemLocator::OnGround(ItemId(10), TileId::new(0, 0), 3);
+        let b = ItemLocator::OnGround(ItemId(11), TileId::new(1, 1), 5);
+        assert_eq!(a.closer(b), a);
+
+        // Also ensure symmetry of comparison result
+        assert_eq!(b.closer(a), a);
+    }
+
+    #[test]
+    fn test_closer_option_item_locator_behavior() {
+        let some_near = ItemLocator::OnGround(ItemId(20), TileId::new(2, 2), 1);
+        let some_far = ItemLocator::OnGround(ItemId(21), TileId::new(3, 3), 9);
+
+        // Some vs None picks Some
+        assert_eq!(
+            closer_option_item_locator(Some(some_near), None),
+            Some(some_near)
+        );
+        assert_eq!(
+            closer_option_item_locator(None, Some(some_far)),
+            Some(some_far)
+        );
+
+        // Two Somes picks the closer one
+        assert_eq!(
+            closer_option_item_locator(Some(some_near), Some(some_far)),
+            Some(some_near)
         );
     }
 }

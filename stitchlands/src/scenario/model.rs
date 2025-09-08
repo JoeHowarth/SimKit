@@ -4,19 +4,15 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use simkit_core::grid::TileId;
 
-use crate::model::ids::ItemId;
+use crate::{model::ids::ItemId, tasks::TaskSpecKind};
 
 // Basic map/tiles; unused in 0.b beyond size
 // On-disk files are ScenarioDef (serde-renamed to Scenario)
 
-#[derive(Debug, Clone, Deserialize, Default)]
-pub struct DefaultsDef {}
-
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[serde(default)]
 pub struct MapDef {
-    #[serde(default)]
     pub size: MapSize,
-    #[serde(default)]
     pub tiles: Vec<TileDef>,
 }
 
@@ -32,13 +28,15 @@ impl Default for MapSize {
     }
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TileDef {
     pub pos: TileId,
     #[serde(default)]
     pub walkable: bool,
     #[serde(default)]
     pub terrain: Terrain,
+    #[serde(default)]
+    pub item: Option<ItemDef>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, Default)]
@@ -48,22 +46,29 @@ pub enum Terrain {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
 pub struct PawnDef {
     pub id: Option<u64>,
     pub name: Option<String>,
     pub pos: Option<TileId>,
-    #[serde(default)]
-    pub needs: NeedsDef,
-    #[serde(default)]
-    pub priorities: HashMap<String, i32>,
-    #[serde(default)]
-    pub inventory: Vec<ItemId>,
+    pub sleep: Option<u32>,
+    pub hunger: Option<u32>,
+    pub priorities: Vec<TaskSpecKind>,
+    pub inventory: Vec<ItemDef>,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, Default)]
-pub struct NeedsDef {
-    pub hunger: f32,
-    pub rest: f32,
+impl Default for PawnDef {
+    fn default() -> Self {
+        Self {
+            id: None,
+            name: None,
+            pos: None,
+            sleep: Some(100),
+            hunger: Some(100),
+            priorities: vec![TaskSpecKind::Harvest, TaskSpecKind::Plant],
+            inventory: vec![],
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -79,6 +84,8 @@ pub struct FixtureDef {
     pub id: Option<u64>,
     pub kind: String,
     pub pos: Option<TileId>,
+    pub inventory: Vec<ItemDef>,
+    pub harvest_countdown: Option<u32>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -88,20 +95,12 @@ pub enum TaskDef {
 
 // Editable form used in RON files (allows many omissions)
 #[derive(Debug, Clone, Deserialize, Default)]
-#[serde(rename = "Scenario")] // on-disk name is simply `Scenario(...)`
+#[serde(rename = "Scenario")]
+#[serde(default)]
 pub struct ScenarioDef {
     pub sim_seed: Option<u64>,
-    #[serde(default)]
     pub map: MapDef,
-    #[serde(default)]
     pub pawns: Vec<PawnDef>,
-    #[serde(default)]
-    pub items: Vec<ItemDef>,
-    #[serde(default)]
     pub fixtures: Vec<FixtureDef>,
-    #[serde(default)]
     pub tasks: Vec<TaskDef>,
-    pub defaults: Option<DefaultsDef>,
 }
-
-// no legacy converter retained; completion occurs at load time

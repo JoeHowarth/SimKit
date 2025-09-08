@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use simkit_core::grid::{Grid2D, GridConfig};
+use simkit_core::grid::{Grid2D, GridConfig, TileId};
 
 use crate::scenario::model::{MapDef, TileDef};
 
@@ -18,9 +18,9 @@ impl WorldGrid {
         let mut walkable = Grid2D::new(cfg, true);
         for TileDef {
             pos, walkable: w, ..
-        } in map.tiles.iter().copied()
+        } in map.tiles.iter().cloned()
         {
-            if let Some(cell) = walkable.get_mut(simkit_core::grid::TileId::new(pos.x, pos.y)) {
+            if let Some(cell) = walkable.get_mut(pos) {
                 *cell = w;
             }
         }
