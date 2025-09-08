@@ -344,6 +344,35 @@ pub fn validate_world(world: &mut World) -> Vec<String> {
                 }
             }
         }
+
+        // Reconcile counts: every OnGround relation must have a corresponding
+        // tile index entry, and every tile index entry must correspond to an
+        // OnGround relation.
+        let onground_ids: std::collections::HashSet<ItemId> = item_infos
+            .iter()
+            .filter_map(|(_, iid, _, rel)| match rel {
+                ItemRelation::OnGround(_) => Some(*iid),
+                _ => None,
+            })
+            .collect();
+        let index_ids: std::collections::HashSet<ItemId> =
+            seen.keys().copied().collect();
+        for id in onground_ids.iter() {
+            if !index_ids.contains(id) {
+                errors.push(format!(
+                    "Item {:?} relation OnGround but missing from tile index",
+                    id
+                ));
+            }
+        }
+        for id in index_ids.iter() {
+            if !onground_ids.contains(id) {
+                errors.push(format!(
+                    "Item {:?} present in tile index but relation is not OnGround",
+                    id
+                ));
+            }
+        }
     }
 
     errors
@@ -626,6 +655,43 @@ mod tests {
         assert!(
             errs.iter()
                 .any(|e| e.contains("in tile index") && e.contains("relation is")),
+            "unexpected errors: {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn detects_onground_missing_tile_index() {
+        let mut app = App::new();
+        setup_indices(&mut app, 3, 3);
+
+        let iid = {
+            app.world_mut()
+                .resource_mut::<IdIndex<ItemId>>()
+                .alloc(None)
+        };
+        let pos = TileId::new(1, 2);
+        let item_e = app
+            .world_mut()
+            .spawn((
+                crate::WorldTag,
+                Item {
+                    id: iid,
+                    kind: crate::model::components::ItemKind::Berry,
+                    qty: 1,
+                },
+                OnGround(pos),
+            ))
+            .id();
+        app.world_mut()
+            .resource_mut::<IdIndex<ItemId>>()
+            .insert(iid, item_e);
+
+        // Intentionally do NOT update TileMapIndex<ItemId> for this OnGround item
+
+        let errs = validate_world(app.world_mut());
+        assert!(
+            errs.iter().any(|e| e.contains("OnGround") && e.contains("tile index")),
             "unexpected errors: {:?}",
             errs
         );
