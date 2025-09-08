@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{platform::collections::HashSet, prelude::*};
 use simkit_core::{
     grid::{index::TileMapIndex, TileId},
     ids::IdIndex,
@@ -6,14 +6,7 @@ use simkit_core::{
 
 use crate::{
     model::{
-        components::{
-            Fixture,
-            FixtureKind,
-            Inventory,
-            Item,
-            ItemRelation,
-            Pawn,
-        },
+        components::{Fixture, FixtureKind, Item, ItemRelation, Pawn},
         ids::{FixtureId, ItemId, PawnId},
     },
     world::WorldGrid,
@@ -269,17 +262,20 @@ pub fn validate_world(world: &mut World) -> Vec<String> {
                     match pawn_inventory_items.get(&iid) {
                         Some(owner) if *owner == *pid => {}
                         Some(owner) => errors.push(format!(
-                            "Item {:?} carried by {:?} but appears in pawn {:?} inventory",
+                            "Item {:?} carried by {:?} but appears in pawn \
+                             {:?} inventory",
                             iid, pid, owner
                         )),
                         None => errors.push(format!(
-                            "Item {:?} carried by {:?} but not in pawn inventory",
+                            "Item {:?} carried by {:?} but not in pawn \
+                             inventory",
                             iid, pid
                         )),
                     }
                     if fixture_inventory_items.contains_key(&iid) {
                         errors.push(format!(
-                            "Item {:?} carried by {:?} but appears in a fixture inventory",
+                            "Item {:?} carried by {:?} but appears in a \
+                             fixture inventory",
                             iid, pid
                         ));
                     }
@@ -288,17 +284,20 @@ pub fn validate_world(world: &mut World) -> Vec<String> {
                     match fixture_inventory_items.get(&iid) {
                         Some(owner) if *owner == *fid => {}
                         Some(owner) => errors.push(format!(
-                            "Item {:?} in fixture {:?} but appears in fixture {:?} inventory",
+                            "Item {:?} in fixture {:?} but appears in fixture \
+                             {:?} inventory",
                             iid, fid, owner
                         )),
                         None => errors.push(format!(
-                            "Item {:?} in fixture {:?} but not in its inventory",
+                            "Item {:?} in fixture {:?} but not in its \
+                             inventory",
                             iid, fid
                         )),
                     }
                     if pawn_inventory_items.contains_key(&iid) {
                         errors.push(format!(
-                            "Item {:?} in fixture {:?} but appears in a pawn inventory",
+                            "Item {:?} in fixture {:?} but appears in a pawn \
+                             inventory",
                             iid, fid
                         ));
                     }
@@ -317,7 +316,8 @@ pub fn validate_world(world: &mut World) -> Vec<String> {
                 if let Some(Some(id)) = item_tile_index.0.get(t).copied() {
                     if let Some(prev) = seen.insert(id, t) {
                         errors.push(format!(
-                            "Item {:?} appears multiple times in tile index at {:?} and {:?}",
+                            "Item {:?} appears multiple times in tile index \
+                             at {:?} and {:?}",
                             id, prev, t
                         ));
                     }
@@ -327,17 +327,20 @@ pub fn validate_world(world: &mut World) -> Vec<String> {
                         Some(ItemRelation::OnGround(pos)) => {
                             if *pos != t {
                                 errors.push(format!(
-                                    "Item {:?} in tile index at {:?} but relation OnGround at {:?}",
+                                    "Item {:?} in tile index at {:?} but \
+                                     relation OnGround at {:?}",
                                     id, t, pos
                                 ));
                             }
                         }
                         Some(other) => errors.push(format!(
-                            "Item {:?} in tile index at {:?} but relation is {:?}",
+                            "Item {:?} in tile index at {:?} but relation is \
+                             {:?}",
                             id, t, other
                         )),
                         None => errors.push(format!(
-                            "Item {:?} in tile index at {:?} but missing ItemRelation",
+                            "Item {:?} in tile index at {:?} but missing \
+                             ItemRelation",
                             id, t
                         )),
                     }
@@ -348,15 +351,14 @@ pub fn validate_world(world: &mut World) -> Vec<String> {
         // Reconcile counts: every OnGround relation must have a corresponding
         // tile index entry, and every tile index entry must correspond to an
         // OnGround relation.
-        let onground_ids: std::collections::HashSet<ItemId> = item_infos
+        let onground_ids: HashSet<ItemId> = item_infos
             .iter()
             .filter_map(|(_, iid, _, rel)| match rel {
                 ItemRelation::OnGround(_) => Some(*iid),
                 _ => None,
             })
             .collect();
-        let index_ids: std::collections::HashSet<ItemId> =
-            seen.keys().copied().collect();
+        let index_ids: HashSet<ItemId> = seen.keys().copied().collect();
         for id in onground_ids.iter() {
             if !index_ids.contains(id) {
                 errors.push(format!(
@@ -368,8 +370,85 @@ pub fn validate_world(world: &mut World) -> Vec<String> {
         for id in index_ids.iter() {
             if !onground_ids.contains(id) {
                 errors.push(format!(
-                    "Item {:?} present in tile index but relation is not OnGround",
+                    "Item {:?} present in tile index but relation is not \
+                     OnGround",
                     id
+                ));
+            }
+        }
+
+        // Inventory reconciliation
+        // Ensure no item appears in both pawn and fixture inventories
+        for (iid, pid) in pawn_inventory_items.iter() {
+            if let Some(fid) = fixture_inventory_items.get(iid) {
+                errors.push(format!(
+                    "Item {:?} appears in both pawn {:?} and fixture {:?} \
+                     inventories",
+                    iid, pid, fid
+                ));
+            }
+        }
+
+        // For each item listed in a pawn inventory, ensure entity+relation
+        // exist
+        for (iid, pid) in pawn_inventory_items.iter() {
+            let ent_opt = item_index.0.get(iid).and_then(|e| *e);
+            match ent_opt {
+                None => errors.push(format!(
+                    "Item {:?} in pawn {:?} inventory but missing from IdIndex",
+                    iid, pid
+                )),
+                Some(ent) => match world.get::<ItemRelation>(ent) {
+                    Some(ItemRelation::CarriedBy(owner)) if *owner == *pid => {}
+                    Some(rel) => errors.push(format!(
+                        "Item {:?} in pawn {:?} inventory but relation is {:?}",
+                        iid, pid, rel
+                    )),
+                    None => errors.push(format!(
+                        "Item {:?} in pawn {:?} inventory but missing \
+                         ItemRelation",
+                        iid, pid
+                    )),
+                },
+            }
+            if index_ids.contains(iid) {
+                errors.push(format!(
+                    "Item {:?} in pawn {:?} inventory but present in tile \
+                     index",
+                    iid, pid
+                ));
+            }
+        }
+
+        // For each item listed in a fixture inventory, ensure entity+relation
+        // exist
+        for (iid, fid) in fixture_inventory_items.iter() {
+            let ent_opt = item_index.0.get(iid).and_then(|e| *e);
+            match ent_opt {
+                None => errors.push(format!(
+                    "Item {:?} in fixture {:?} inventory but missing from \
+                     IdIndex",
+                    iid, fid
+                )),
+                Some(ent) => match world.get::<ItemRelation>(ent) {
+                    Some(ItemRelation::InFixture(owner)) if *owner == *fid => {}
+                    Some(rel) => errors.push(format!(
+                        "Item {:?} in fixture {:?} inventory but relation is \
+                         {:?}",
+                        iid, fid, rel
+                    )),
+                    None => errors.push(format!(
+                        "Item {:?} in fixture {:?} inventory but missing \
+                         ItemRelation",
+                        iid, fid
+                    )),
+                },
+            }
+            if index_ids.contains(iid) {
+                errors.push(format!(
+                    "Item {:?} in fixture {:?} inventory but present in tile \
+                     index",
+                    iid, fid
                 ));
             }
         }
@@ -380,26 +459,28 @@ pub fn validate_world(world: &mut World) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    use simkit_core::grid::{Grid2D, GridConfig};
+
     use super::*;
-    use crate::model::components::ItemRelation::*;
+    use crate::model::{components::ItemRelation::*, *};
 
     fn setup_indices(app: &mut App, width: u32, height: u32) {
         app.insert_resource(WorldGrid {
-            cfg: simkit_core::grid::GridConfig { width, height },
-            walkable: simkit_core::grid::Grid2D::new(
-                simkit_core::grid::GridConfig { width, height },
-                true,
-            ),
+            cfg: GridConfig { width, height },
+            walkable: Grid2D::new(GridConfig { width, height }, true),
         })
-        .insert_resource(TileMapIndex::<PawnId>::new(
-            simkit_core::grid::GridConfig { width, height },
-        ))
-        .insert_resource(TileMapIndex::<ItemId>::new(
-            simkit_core::grid::GridConfig { width, height },
-        ))
-        .insert_resource(TileMapIndex::<FixtureId>::new(
-            simkit_core::grid::GridConfig { width, height },
-        ))
+        .insert_resource(TileMapIndex::<PawnId>::new(GridConfig {
+            width,
+            height,
+        }))
+        .insert_resource(TileMapIndex::<ItemId>::new(GridConfig {
+            width,
+            height,
+        }))
+        .insert_resource(TileMapIndex::<FixtureId>::new(GridConfig {
+            width,
+            height,
+        }))
         .init_resource::<IdIndex<PawnId>>()
         .init_resource::<IdIndex<ItemId>>()
         .init_resource::<IdIndex<FixtureId>>();
@@ -451,7 +532,7 @@ mod tests {
                     kind: crate::model::components::ItemKind::Berry,
                     qty: 1,
                 },
-                CarriedBy(pawn_id),
+                ItemRelation::CarriedBy(pawn_id),
             ))
             .id();
         app.world_mut()
@@ -589,8 +670,8 @@ mod tests {
 
         let errs = validate_world(app.world_mut());
         assert!(
-            errs.iter()
-                .any(|e| e.contains("carried") && e.contains("not in pawn inventory")),
+            errs.iter().any(|e| e.contains("carried")
+                && e.contains("not in pawn inventory")),
             "unexpected errors: {:?}",
             errs
         );
@@ -654,7 +735,8 @@ mod tests {
         let errs = validate_world(app.world_mut());
         assert!(
             errs.iter()
-                .any(|e| e.contains("in tile index") && e.contains("relation is")),
+                .any(|e| e.contains("in tile index")
+                    && e.contains("relation is")),
             "unexpected errors: {:?}",
             errs
         );
@@ -687,13 +769,118 @@ mod tests {
             .resource_mut::<IdIndex<ItemId>>()
             .insert(iid, item_e);
 
-        // Intentionally do NOT update TileMapIndex<ItemId> for this OnGround item
+        // Intentionally do NOT update TileMapIndex<ItemId> for this OnGround
+        // item
 
         let errs = validate_world(app.world_mut());
         assert!(
-            errs.iter().any(|e| e.contains("OnGround") && e.contains("tile index")),
+            errs.iter()
+                .any(|e| e.contains("OnGround") && e.contains("tile index")),
             "unexpected errors: {:?}",
             errs
         );
+    }
+
+    #[test]
+    fn detects_inventory_missing_entity_and_dual_inventory() {
+        let mut app = App::new();
+        setup_indices(&mut app, 3, 3);
+
+        // Create a pawn and a fixture
+        let pid = app
+            .world_mut()
+            .resource_mut::<IdIndex<PawnId>>()
+            .alloc(None);
+        let pawn_e = app
+            .world_mut()
+            .spawn((
+                crate::WorldTag,
+                Pawn {
+                    id: pid,
+                    inventory: Inventory::default(),
+                    sleep: simkit_core::fixed_point::Q40p24::ONE,
+                    hunger: simkit_core::fixed_point::Q40p24::ONE,
+                },
+                TileId::new(0, 0),
+            ))
+            .id();
+        app.world_mut()
+            .resource_mut::<IdIndex<PawnId>>()
+            .insert(pid, pawn_e);
+
+        let fid = app
+            .world_mut()
+            .resource_mut::<IdIndex<FixtureId>>()
+            .alloc(None);
+        let fixture_e = app
+            .world_mut()
+            .spawn((
+                crate::WorldTag,
+                Fixture {
+                    id: fid,
+                    kind: FixtureKind::Stockpile,
+                    inventory: Inventory::default(),
+                    harvest_countdown: None,
+                },
+                TileId::new(1, 1),
+            ))
+            .id();
+        app.world_mut()
+            .resource_mut::<IdIndex<FixtureId>>()
+            .insert(fid, fixture_e);
+
+        // Case 1: Inventory references missing entity (IdIndex entry without
+        // Entity)
+        let missing_iid = app
+            .world_mut()
+            .resource_mut::<IdIndex<ItemId>>()
+            .alloc(None);
+        // Put into pawn inventory without spawning the Item
+        {
+            let mut pawn = app.world_mut().get_mut::<Pawn>(pawn_e).unwrap();
+            pawn.inventory.0.push((missing_iid, ItemKind::Berry));
+        }
+
+        // Case 2: Same item in both inventories (create a real item id)
+        let dual_iid = app
+            .world_mut()
+            .resource_mut::<IdIndex<ItemId>>()
+            .alloc(None);
+        {
+            let mut pawn = app.world_mut().get_mut::<Pawn>(pawn_e).unwrap();
+            pawn.inventory.0.push((dual_iid, ItemKind::Berry));
+        }
+        {
+            let mut fix =
+                app.world_mut().get_mut::<Fixture>(fixture_e).unwrap();
+            fix.inventory.0.push((dual_iid, ItemKind::Berry));
+        }
+        // Spawn entity for dual_iid but give it conflicting relation (OnGround)
+        let dual_e = app
+            .world_mut()
+            .spawn((
+                crate::WorldTag,
+                Item {
+                    id: dual_iid,
+                    kind: ItemKind::Berry,
+                    qty: 1,
+                },
+                OnGround(TileId::new(2, 2)),
+            ))
+            .id();
+        app.world_mut()
+            .resource_mut::<IdIndex<ItemId>>()
+            .insert(dual_iid, dual_e);
+
+        let errs = validate_world(app.world_mut());
+        // Expect errors about missing IdIndex entity for missing_iid, dual
+        // inventory presence, and relation mismatch for dual_iid
+        assert!(errs.iter().any(|e| e.contains("missing from IdIndex")));
+        assert!(errs.iter().any(
+            |e| e.contains("appears in both pawn") && e.contains("fixture")
+        ));
+        assert!(errs
+            .iter()
+            .any(|e| e.contains("inventory") && e.contains("relation is")));
     }
 }
