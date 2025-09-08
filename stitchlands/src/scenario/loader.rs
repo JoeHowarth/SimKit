@@ -487,4 +487,211 @@ mod tests {
         let fpos = fixtures[0].1;
         assert!(fpos.x >= 0 && fpos.x < 4 && fpos.y >= 0 && fpos.y < 4);
     }
+
+    #[test]
+    fn scenario_loading_spawns_map_items_and_indices_ok() {
+        let def = ScenarioDef {
+            sim_seed: Some(7),
+            map: model::MapDef {
+                size: model::MapSize { x: 5, y: 5 },
+                tiles: vec![model::TileDef {
+                    pos: TileId::new(2, 3),
+                    walkable: true,
+                    terrain: model::Terrain::Grass,
+                    item: Some(model::ItemDef {
+                        id: None,
+                        kind: "Berry".into(),
+                        qty: 1,
+                        pos: None,
+                    }),
+                }],
+            },
+            pawns: vec![],
+            fixtures: vec![],
+            tasks: vec![],
+        };
+
+        let mut app = App::new();
+        app.init_resource::<RngResource>()
+            .init_resource::<IdIndex<PawnId>>()
+            .init_resource::<IdIndex<ItemId>>()
+            .init_resource::<IdIndex<FixtureId>>()
+            .init_resource::<IdIndex<TaskId>>()
+            .insert_resource(TestScenario(def))
+            .add_systems(Startup, sys_load_from_def);
+        app.update();
+
+        let world = app.world_mut();
+        let mut item_q = world.query::<(&Item, &TileId)>();
+        let items: Vec<_> = item_q.iter(world).collect();
+        assert_eq!(items.len(), 1);
+        let (it, pos) = items[0];
+        assert!(it.id.0 >= 1000);
+        // Item is spawned and placed somewhere on the map
+        assert!(pos.x >= 0 && pos.x < 5 && pos.y >= 0 && pos.y < 5);
+
+        // Index reflects placement
+        let idx = world.resource::<TileMapIndex<ItemId>>();
+        assert_eq!(idx.get(*pos), Some(it.id));
+    }
+
+    // This test encodes the expected behavior that a TileDef with `item`
+    // should place that item at the tile's position. It currently FAILS
+    // because loader ignores the TileDef.pos for items and randomizes the
+    // item position.
+    #[test]
+    fn scenario_map_tile_item_respects_tile_position() {
+        let def = ScenarioDef {
+            sim_seed: Some(7),
+            map: model::MapDef {
+                size: model::MapSize { x: 5, y: 5 },
+                tiles: vec![model::TileDef {
+                    pos: TileId::new(2, 3),
+                    walkable: true,
+                    terrain: model::Terrain::Grass,
+                    item: Some(model::ItemDef {
+                        id: None,
+                        kind: "Berry".into(),
+                        qty: 1,
+                        pos: None,
+                    }),
+                }],
+            },
+            pawns: vec![],
+            fixtures: vec![],
+            tasks: vec![],
+        };
+
+        let mut app = App::new();
+        app.init_resource::<RngResource>()
+            .init_resource::<IdIndex<PawnId>>()
+            .init_resource::<IdIndex<ItemId>>()
+            .init_resource::<IdIndex<FixtureId>>()
+            .init_resource::<IdIndex<TaskId>>()
+            .insert_resource(TestScenario(def))
+            .add_systems(Startup, sys_load_from_def);
+        app.update();
+
+        let world = app.world_mut();
+        let mut item_q = world.query::<(&Item, &TileId)>();
+        let items: Vec<_> = item_q.iter(world).collect();
+        assert_eq!(items.len(), 1);
+        let (_, pos) = items[0];
+        assert_eq!(*pos, TileId::new(2, 3));
+    }
+
+    #[test]
+    fn scenario_loading_assigns_pawn_names_positions_and_index() {
+        let def = ScenarioDef {
+            sim_seed: Some(99),
+            map: model::MapDef {
+                size: model::MapSize { x: 6, y: 4 },
+                tiles: vec![],
+            },
+            pawns: vec![
+                model::PawnDef {
+                    id: Some(100),
+                    name: Some("Eve".into()),
+                    pos: Some(TileId::new(0, 0)),
+                    ..Default::default()
+                },
+                model::PawnDef::default(),
+            ],
+            fixtures: vec![],
+            tasks: vec![],
+        };
+
+        let mut app = App::new();
+        app.init_resource::<RngResource>()
+            .init_resource::<IdIndex<PawnId>>()
+            .init_resource::<IdIndex<ItemId>>()
+            .init_resource::<IdIndex<FixtureId>>()
+            .init_resource::<IdIndex<TaskId>>()
+            .insert_resource(TestScenario(def))
+            .add_systems(Startup, sys_load_from_def);
+        app.update();
+
+        let world = app.world_mut();
+        let mut pawn_q = world.query::<(&Pawn, &TileId, &Name)>();
+        let pawns: Vec<_> = pawn_q.iter(world).collect();
+        assert_eq!(pawns.len(), 2);
+
+        // Eve with id 100 exists at a valid position
+        let eve = pawns.iter().find(|(p, _, n)| p.id.0 == 100 && n.as_str() == "Eve").expect("Eve pawn present");
+        assert!(eve.1.x >= 0 && eve.1.x < 6 && eve.1.y >= 0 && eve.1.y < 4);
+
+        // Positions are within bounds and unique in the small map
+        let mut seen = std::collections::HashSet::new();
+        for (_, pos, _) in pawns.iter() {
+            assert!(pos.x >= 0 && pos.x < 6 && pos.y >= 0 && pos.y < 4);
+            assert!(seen.insert((pos.x, pos.y)), "pawn positions must be unique");
+        }
+
+        // Index reflects placement
+        let idx = world.resource::<TileMapIndex<PawnId>>();
+        for (p, pos, _) in pawns.iter() {
+            assert_eq!(idx.get(**pos), Some(p.id));
+        }
+    }
+
+    // This test captures a likely bug: items declared in a fixture's
+    // inventory should be attached with InFixture and not be on the ground.
+    // It currently FAILS with the existing loader logic.
+    #[test]
+    fn scenario_fixture_inventory_items_are_infixture_and_not_on_ground() {
+        let def = ScenarioDef {
+            sim_seed: Some(5),
+            map: model::MapDef { size: model::MapSize { x: 4, y: 4 }, tiles: vec![] },
+            pawns: vec![],
+            fixtures: vec![model::FixtureDef {
+                id: Some(123),
+                kind: "BerryBush".into(),
+                pos: Some(TileId::new(1, 1)),
+                inventory: vec![model::ItemDef { id: None, kind: "Berry".into(), qty: 1, pos: None }],
+                harvest_countdown: None,
+            }],
+            tasks: vec![],
+        };
+
+        let mut app = App::new();
+        app.init_resource::<RngResource>()
+            .init_resource::<IdIndex<PawnId>>()
+            .init_resource::<IdIndex<ItemId>>()
+            .init_resource::<IdIndex<FixtureId>>()
+            .init_resource::<IdIndex<TaskId>>()
+            .insert_resource(TestScenario(def))
+            .add_systems(Startup, sys_load_from_def);
+        app.update();
+
+        let world = app.world_mut();
+        // Scope fixture borrow so we can run other queries after.
+        let (fixture_copy, fpos_copy, item_id) = {
+            let mut f_q = world.query::<(&Fixture, &TileId)>();
+            let fixtures: Vec<_> = f_q.iter(world).collect();
+            assert_eq!(fixtures.len(), 1);
+            let (fixture, fpos) = fixtures[0];
+            assert_eq!(fixture.id.0, 123);
+            assert_eq!(fixture.kind, FixtureKind::BerryBush);
+            assert_eq!(fixture.harvest_countdown, Some(100));
+            assert_eq!(*fpos, TileId::new(1, 1));
+
+            let (item_id, _) = fixture
+                .inventory
+                .0
+                .first()
+                .copied()
+                .expect("fixture inventory item present");
+            (fixture.clone(), *fpos, item_id)
+        };
+
+        // EXPECTED: item should be attached to the fixture via InFixture
+        // and should NOT have a TileId on the ground.
+        // CURRENT BEHAVIOR: item is spawned on the ground with TileId and no InFixture.
+        // This assertion will FAIL until loader attaches items to fixtures.
+        let mut q = world.query::<(Option<&InFixture>, Option<&TileId>)>();
+        let ent = world.resource::<IdIndex<ItemId>>().get(&item_id);
+        let (in_fix, on_ground) = q.get(world, ent).unwrap();
+        assert_eq!(in_fix, Some(&InFixture(fixture_copy.id)));
+        assert_eq!(on_ground, None);
+    }
 }
