@@ -251,14 +251,26 @@ fn spawn_pawns_from_def(
             None => unique_pos(&mut used_positions, gen(), &mut gen),
         };
 
-        let inventory = spawn_items_from_def(
-            commands,
-            rng,
-            map_size,
-            item_index,
-            &p.inventory,
-            item_tile_index,
-        );
+        // Build pawn inventory: spawn items carried by this pawn
+        let mut inventory = Inventory::default();
+        for it in p.inventory.iter() {
+            let typed_item = item_index.alloc(it.id.map(ItemId));
+            let kind = ItemKind::from_str(&it.kind).unwrap();
+            let entity = commands
+                .spawn((
+                    crate::WorldTag,
+                    Name::new(format!("Item#{}", typed_item.0)),
+                    Item {
+                        id: typed_item,
+                        kind,
+                        qty: it.qty,
+                    },
+                    CarriedBy(typed),
+                ))
+                .id();
+            item_index.insert(typed_item, entity);
+            inventory.add((typed_item, kind));
+        }
 
         let entity = commands
             .spawn((
@@ -648,6 +660,100 @@ mod tests {
         let idx = world.resource::<TileMapIndex<PawnId>>();
         for (p, pos, _) in pawns.iter() {
             assert_eq!(idx.get(**pos), Some(p.id));
+        }
+    }
+
+    #[test]
+    fn scenario_pawn_inventory_items_are_carried_and_not_on_ground() {
+        let def = ScenarioDef {
+            sim_seed: Some(11),
+            map: model::MapDef { size: model::MapSize { x: 5, y: 5 }, tiles: vec![] },
+            pawns: vec![model::PawnDef {
+                id: Some(200),
+                name: Some("Kai".into()),
+                pos: Some(TileId::new(2, 2)),
+                inventory: vec![model::ItemDef { id: Some(3000), kind: "Berry".into(), qty: 1, pos: None }],
+                ..Default::default()
+            }],
+            fixtures: vec![],
+            tasks: vec![],
+        };
+
+        let mut app = App::new();
+        app.init_resource::<RngResource>()
+            .init_resource::<IdIndex<PawnId>>()
+            .init_resource::<IdIndex<ItemId>>()
+            .init_resource::<IdIndex<FixtureId>>()
+            .init_resource::<IdIndex<TaskId>>()
+            .insert_resource(TestScenario(def))
+            .add_systems(Startup, sys_load_from_def);
+        app.update();
+
+        let world = app.world_mut();
+        // Fetch pawn and its inventory contents, but copy out the values to drop the borrow
+        let (pawn_id, item_id) = {
+            let mut pawn_q = world.query::<(&Pawn, &TileId)>();
+            let pawns: Vec<_> = pawn_q.iter(world).collect();
+            assert_eq!(pawns.len(), 1);
+            let (pawn, _pos) = pawns[0];
+            let (item_id, _) = pawn.inventory.0[0];
+            (pawn.id, item_id)
+        };
+
+        // Item should be carried by this pawn and not on ground
+        let mut item_q = world.query::<(Option<&CarriedBy>, Option<&InFixture>, Option<&TileId>)>();
+        let ent = world.resource::<IdIndex<ItemId>>().get(&item_id);
+        let (carried_by, in_fixture, tile) = item_q.get(world, ent).unwrap();
+        assert_eq!(carried_by, Some(&CarriedBy(pawn_id)));
+        assert_eq!(in_fixture, None);
+        assert_eq!(tile, None);
+    }
+
+    #[test]
+    fn scenario_ground_item_is_not_in_any_inventory() {
+        let def = ScenarioDef {
+            sim_seed: Some(13),
+            map: model::MapDef {
+                size: model::MapSize { x: 4, y: 4 },
+                tiles: vec![model::TileDef {
+                    pos: TileId::new(1, 1),
+                    walkable: true,
+                    terrain: model::Terrain::Grass,
+                    item: Some(model::ItemDef { id: None, kind: "Berry".into(), qty: 1, pos: None }),
+                }],
+            },
+            pawns: vec![model::PawnDef::default()],
+            fixtures: vec![model::FixtureDef { id: None, kind: "Stockpile".into(), pos: None, inventory: vec![], harvest_countdown: None }],
+            tasks: vec![],
+        };
+
+        let mut app = App::new();
+        app.init_resource::<RngResource>()
+            .init_resource::<IdIndex<PawnId>>()
+            .init_resource::<IdIndex<ItemId>>()
+            .init_resource::<IdIndex<FixtureId>>()
+            .init_resource::<IdIndex<TaskId>>()
+            .insert_resource(TestScenario(def))
+            .add_systems(Startup, sys_load_from_def);
+        app.update();
+
+        let world = app.world_mut();
+        let ground_item_id = {
+            let mut item_q = world.query::<(&Item, &TileId)>();
+            let items: Vec<_> = item_q.iter(world).collect();
+            assert_eq!(items.len(), 1);
+            let (it, _pos) = items[0];
+            it.id
+        };
+
+        // Ensure no pawn or fixture inventory contains this ground item
+        let mut pawn_q = world.query::<&Pawn>();
+        for p in pawn_q.iter(world) {
+            assert!(!p.inventory.contains(&ground_item_id));
+        }
+        let mut fix_q = world.query::<&Fixture>();
+        for f in fix_q.iter(world) {
+            assert!(!f.inventory.contains(&ground_item_id));
         }
     }
 
