@@ -11,12 +11,9 @@ use simkit_core::{
 };
 
 use crate::{
-    model::{
-        components::{Fixture, Item, Pawn},
-        ids::TaskId,
-    },
+    model::components::{Fixture, Item, Pawn},
     scenario::LoadedScenarioMeta,
-    snapshot::{build_world_snapshot, stable_hash_json},
+    snapshot::build_world_snapshot,
 };
 
 pub mod model;

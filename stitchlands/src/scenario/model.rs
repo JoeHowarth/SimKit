@@ -1,10 +1,9 @@
-use std::collections::HashMap;
 
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use simkit_core::grid::TileId;
 
-use crate::{model::ids::ItemId, tasks::TaskSpecKind};
+use crate::tasks::TaskSpecKind;
 
 // Basic map/tiles; unused in 0.b beyond size
 // On-disk files are ScenarioDef (serde-renamed to Scenario)

@@ -1,18 +1,11 @@
 use std::str::FromStr;
 
-use bevy::{
-    ecs::{
-        query::{QueryData, QueryFilter, QueryItem, ROQueryItem},
-        system::SystemParam,
-    },
-    log::tracing::span::Id,
-    prelude::*,
-};
+use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use simkit_core::{
     fixed_point::Q40p24,
     grid::TileId,
-    ids::{HasSimId, IdIndex, SimId},
+    ids::HasSimId,
     impl_hassimid,
 };
 

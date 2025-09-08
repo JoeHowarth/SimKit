@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, fmt::format};
+use std::collections::VecDeque;
 
 use bevy::prelude::*;
 use simkit_core::{

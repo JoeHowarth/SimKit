@@ -20,7 +20,6 @@ use crate::{
         build_sleep_plan,
         closer_option_item_locator,
         step_jobs,
-        ItemLocator,
         ToilKind,
     },
 };

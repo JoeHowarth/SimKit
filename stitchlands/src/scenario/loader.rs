@@ -98,7 +98,7 @@ pub fn load_scenario_from_def(
     mut pawn_index: ResMut<IdIndex<PawnId>>,
     mut item_index: ResMut<IdIndex<ItemId>>,
     mut fixture_index: ResMut<IdIndex<FixtureId>>,
-    mut task_index: ResMut<IdIndex<TaskId>>,
+    task_index: ResMut<IdIndex<TaskId>>,
     scenario_def: ScenarioDef,
     fallback_seed: u64,
 ) {

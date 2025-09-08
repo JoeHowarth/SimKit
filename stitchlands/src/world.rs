@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use simkit_core::grid::{Grid2D, GridConfig, TileId};
+use simkit_core::grid::{Grid2D, GridConfig};
 
 use crate::scenario::model::{MapDef, TileDef};
 
