@@ -314,7 +314,7 @@ fn spawn_items_from_def(
             None => unique_pos(&mut used_positions, gen(), &mut gen),
         };
 
-        // Spawn item
+        // Spawn item on ground (via ItemRelation)
         let entity = commands
             .spawn((
                 crate::WorldTag,
@@ -324,7 +324,7 @@ fn spawn_items_from_def(
                     kind,
                     qty: it.qty,
                 },
-                pos,
+                ItemRelation::OnGround(pos),
             ))
             .id();
         index.insert(typed, entity);
@@ -551,17 +551,18 @@ mod tests {
         app.update();
 
         let world = app.world_mut();
-        let mut item_q = world.query::<(&Item, &TileId)>();
+        let mut item_q = world.query::<(&Item, &ItemRelation)>();
         let items: Vec<_> = item_q.iter(world).collect();
         assert_eq!(items.len(), 1);
-        let (it, pos) = items[0];
+        let (it, rel) = items[0];
         assert!(it.id.0 >= 1000);
         // Item is spawned and placed somewhere on the map
+        let pos = match rel { ItemRelation::OnGround(p) => *p, _ => panic!("expected OnGround item") };
         assert!(pos.x >= 0 && pos.x < 5 && pos.y >= 0 && pos.y < 5);
 
         // Index reflects placement
         let idx = world.resource::<TileMapIndex<ItemId>>();
-        assert_eq!(idx.get(*pos), Some(it.id));
+        assert_eq!(idx.get(pos), Some(it.id));
     }
 
     // This test encodes the expected behavior that a TileDef with `item`
@@ -602,11 +603,12 @@ mod tests {
         app.update();
 
         let world = app.world_mut();
-        let mut item_q = world.query::<(&Item, &TileId)>();
+        let mut item_q = world.query::<(&Item, &ItemRelation)>();
         let items: Vec<_> = item_q.iter(world).collect();
         assert_eq!(items.len(), 1);
-        let (_, pos) = items[0];
-        assert_eq!(*pos, TileId::new(2, 3));
+        let (_, rel) = items[0];
+        let pos = match rel { ItemRelation::OnGround(p) => *p, _ => panic!("expected OnGround item") };
+        assert_eq!(pos, TileId::new(2, 3));
     }
 
     #[test]
@@ -737,10 +739,11 @@ mod tests {
 
         let world = app.world_mut();
         let ground_item_id = {
-            let mut item_q = world.query::<(&Item, &TileId)>();
+            let mut item_q = world.query::<(&Item, &ItemRelation)>();
             let items: Vec<_> = item_q.iter(world).collect();
             assert_eq!(items.len(), 1);
-            let (it, _pos) = items[0];
+            let (it, rel) = items[0];
+            assert!(matches!(rel, ItemRelation::OnGround(_)));
             it.id
         };
 

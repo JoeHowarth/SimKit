@@ -459,7 +459,10 @@ pub fn validate_world(world: &mut World) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use simkit_core::grid::{Grid2D, GridConfig};
+    use simkit_core::{
+        fixed_point::Q40p24,
+        grid::{Grid2D, GridConfig},
+    };
 
     use super::*;
     use crate::model::{components::ItemRelation::*, *};
@@ -510,8 +513,8 @@ mod tests {
                         carried_item_id,
                         crate::model::components::ItemKind::Berry,
                     )]),
-                    sleep: simkit_core::fixed_point::Q40p24::ONE,
-                    hunger: simkit_core::fixed_point::Q40p24::ONE,
+                    sleep: Q40p24::ONE,
+                    hunger: Q40p24::ONE,
                 },
                 TileId::new(1, 1),
             ))
@@ -639,8 +642,8 @@ mod tests {
                 Pawn {
                     id: pid,
                     inventory: Inventory(vec![]),
-                    sleep: simkit_core::fixed_point::Q40p24::ONE,
-                    hunger: simkit_core::fixed_point::Q40p24::ONE,
+                    sleep: Q40p24::ONE,
+                    hunger: Q40p24::ONE,
                 },
                 TileId::new(0, 0),
             ))
@@ -695,8 +698,8 @@ mod tests {
                 Pawn {
                     id: pid,
                     inventory: Inventory::default(),
-                    sleep: simkit_core::fixed_point::Q40p24::ONE,
-                    hunger: simkit_core::fixed_point::Q40p24::ONE,
+                    sleep: Q40p24::ONE,
+                    hunger: Q40p24::ONE,
                 },
                 TileId::new(0, 0),
             ))
@@ -798,8 +801,8 @@ mod tests {
                 Pawn {
                     id: pid,
                     inventory: Inventory::default(),
-                    sleep: simkit_core::fixed_point::Q40p24::ONE,
-                    hunger: simkit_core::fixed_point::Q40p24::ONE,
+                    sleep: Q40p24::ONE,
+                    hunger: Q40p24::ONE,
                 },
                 TileId::new(0, 0),
             ))

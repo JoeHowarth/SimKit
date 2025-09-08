@@ -3,7 +3,7 @@ mod loader;
 pub mod model;
 
 use bevy::prelude::*;
-pub use loader::LoadedScenarioMeta;
+pub use loader::{load_scenario_from_def, LoadedScenarioMeta};
 use simkit_core::{
     ids::IdIndex,
     AppState,

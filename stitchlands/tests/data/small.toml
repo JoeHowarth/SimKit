@@ -1,0 +1,35 @@
+sim_seed = 42
+
+[map]
+size = { x = 6, y = 6 }
+
+[[map.tiles]]
+pos = { x = 3, y = 2 }
+walkable = true
+terrain = "Grass"
+item = { id = 0, kind = "Berry", qty = 1 }
+
+[[pawns]]
+id = 1001
+name = "Sam"
+pos = { x = 1, y = 1 }
+sleep = 80
+hunger = 60
+priorities = ["Harvest", "Plant"]
+inventory = [{ id = 2001, kind = "Berry", qty = 1 }]
+
+[[pawns]]
+name = "Ava"
+# Let loader pick position and ids
+priorities = ["Harvest", "Plant"]
+inventory = []
+
+[[fixtures]]
+id = 3001
+kind = "Stockpile"
+pos = { x = 2, y = 2 }
+inventory = [{ id = 2002, kind = "Berry", qty = 1 }]
+harvest_countdown = 0
+
+# tasks = []
+
