@@ -13,7 +13,7 @@ use simkit_core::{
 };
 
 use crate::{
-    model::{components::*, ids::*},
+    model::*,
     toils::{
         build_eat_plan,
         build_plan_for_task,
@@ -34,7 +34,7 @@ impl Plugin for TaskPlugin {
     }
 }
 
-#[derive(Clone, Copy,PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub enum TaskSpecKind {
     Harvest,
     Plant,
@@ -163,7 +163,7 @@ fn schedule_pawns(
     mut pawns: Query<(&Pawn, &TileId, &WorkPriority, &mut Job)>,
     mut task_board: ResMut<TaskBoard>,
     fixtures: FixtureQuery<&TileId>,
-    items: ItemQuery<&TileId>,
+    items: ItemQuery<&ItemRelation>,
     fixture_tile_index: Res<TileMapIndex<FixtureId>>,
 ) {
     // TODO: use a stable ordering of pawns
@@ -264,7 +264,7 @@ fn next_job_is_needs(
     pawn: &Pawn,
     pos: &TileId,
     fixtures: &FixtureQuery<&TileId>,
-    items: &ItemQuery<&TileId>,
+    items: &ItemQuery<&ItemRelation>,
 ) -> Option<Job> {
     // Sleep and eat threshold are lower than when we have a job
     if pawn.eat_priority() > Q40p24::from(0.6) {
@@ -306,7 +306,7 @@ fn choose_next_job(
     pos: &TileId,
     work_priority: &WorkPriority,
     fixtures: &FixtureQuery<&TileId>,
-    items: &ItemQuery<&TileId>,
+    items: &ItemQuery<&ItemRelation>,
     fixture_tile_index: &TileMapIndex<FixtureId>,
 ) -> Job {
     // Check if needs are urgent
@@ -370,7 +370,7 @@ impl TaskSpec {
         pawn: &Pawn,
         pos: &TileId,
         fixtures: &FixtureQuery<&TileId>,
-        items: &ItemQuery<&TileId>,
+        items: &ItemQuery<&ItemRelation>,
     ) -> Option<Q40p24> {
         match self {
             TaskSpec::Harvest(_) => self.harvest_priority(pos, fixtures),
@@ -406,14 +406,14 @@ impl TaskSpec {
         &self,
         pawn: &Pawn,
         pawn_pos: &TileId,
-        items: &ItemQuery<&TileId>,
+        items: &ItemQuery<&ItemRelation>,
         fixtures: &FixtureQuery<&TileId>,
     ) -> Option<Q40p24> {
         let TaskSpec::Plant(fixture_pos, item_kind) = self else {
             panic!("Plant priority called for non-plant task");
         };
-        let (item_pos, _) =
-            neartest_item_position(pawn, pawn_pos, item_kind, items, fixtures)?;
+        let item_pos =
+            neartest_item_pos(pawn, pawn_pos, item_kind, items, fixtures)?;
         let distance_to_get_item = manhattan(*pawn_pos, item_pos);
 
         let distance = manhattan(*fixture_pos, item_pos);
@@ -422,26 +422,26 @@ impl TaskSpec {
     }
 }
 
-pub fn neartest_item_position(
+pub fn neartest_item_pos(
     pawn: &Pawn,
     pawn_pos: &TileId,
     item_kind: &ItemKind,
-    items: &ItemQuery<&TileId>,
+    items: &ItemQuery<&ItemRelation>,
     fixtures: &FixtureQuery<&TileId>,
-) -> Option<(TileId, ItemId)> {
-    if let Some(locator) = pawn
-        .inventory
-        .find(*item_kind)
-        .map(|id| ItemLocator::InInventory(id, *pawn_pos))
-    {
-        return Some((*pawn_pos, locator.item_id()));
+) -> Option<TileId> {
+    if pawn.inventory.find(*item_kind).is_some() {
+        return Some(*pawn_pos);
     }
 
     let on_ground = nearest_item_on_ground(item_kind, pawn_pos, items);
     let fixture = nearest_fixture_with_item(item_kind, pawn_pos, fixtures);
 
-    let closer = closer_option_item_locator(on_ground, fixture)?;
-    Some((closer.tile_id(), closer.item_id()))
+    let (item_id, _dist) = closer_option_item_locator(on_ground, fixture)?;
+    Some(match items.get(&item_id).1 {
+        ItemRelation::CarriedBy(pawn_id) => *pawn_pos,
+        ItemRelation::InFixture(fixture_id) => *fixtures.get(fixture_id).1,
+        ItemRelation::OnGround(tile_id) => *tile_id,
+    })
 }
 
 fn distance_to_score(distance: impl Into<Q40p24>) -> Q40p24 {
@@ -456,22 +456,27 @@ pub fn manhattan(a: TileId, b: TileId) -> u32 {
 pub fn nearest_item_on_ground(
     target_kind: &ItemKind,
     current_pos: &TileId,
-    items: &ItemQuery<&TileId>,
-) -> Option<ItemLocator> {
+    items: &ItemQuery<&ItemRelation>,
+) -> Option<(ItemId, u32)> {
     // find nearest item on ground that matches item
     let mut nearest = None;
-    for (item, item_pos) in items.query.iter() {
+    for (item, item_rel) in items.query.iter() {
+
+        let ItemRelation::OnGround(item_pos) = item_rel else {
+            continue;
+        };
+
         if item.kind == *target_kind {
             let distance = manhattan(*current_pos, *item_pos);
             if distance
                 > nearest
                     .as_ref()
-                    .map(ItemLocator::distance)
+                    .map(|(_, distance)| *distance)
                     .unwrap_or(u32::MAX)
             {
                 continue;
             }
-            nearest = Some(ItemLocator::OnGround(item.id, *item_pos, distance));
+            nearest = Some((item.id, distance));
         }
     }
     nearest
@@ -481,14 +486,14 @@ pub fn nearest_fixture_with_item(
     target_kind: &ItemKind,
     current_pos: &TileId,
     fixtures: &FixtureQuery<&TileId>,
-) -> Option<ItemLocator> {
+) -> Option<(ItemId, u32)> {
     // find nearest fixture that contains item
     let mut nearest = None;
     for (fixture, fixture_pos) in fixtures.query.iter() {
         let Some(loc) = fixture
             .inventory
             .find(*target_kind)
-            .map(|id| ItemLocator::InInventory(id, *current_pos))
+            .map(|id| (id, *current_pos))
         else {
             continue;
         };
@@ -497,18 +502,13 @@ pub fn nearest_fixture_with_item(
         if distance
             > nearest
                 .as_ref()
-                .map(ItemLocator::distance)
+                .map(|(_, distance)| *distance)
                 .unwrap_or(u32::MAX)
         {
             continue;
         }
 
-        nearest = Some(ItemLocator::InFixture(
-            fixture.id,
-            *fixture_pos,
-            loc.item_id(),
-            distance,
-        ));
+        nearest = Some((loc.0, distance));
     }
     nearest
 }

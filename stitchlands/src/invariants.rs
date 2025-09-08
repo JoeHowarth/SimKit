@@ -1,13 +1,23 @@
 use bevy::prelude::*;
-
-use simkit_core::grid::{index::TileMapIndex, TileId};
-
-use crate::model::components::{
-    CarriedBy, Fixture, FixtureKind, InFixture, Inventory, Item, Pawn,
+use simkit_core::{
+    grid::{index::TileMapIndex, TileId},
+    ids::IdIndex,
 };
-use crate::model::ids::{FixtureId, ItemId, PawnId};
-use crate::world::WorldGrid;
-use simkit_core::ids::IdIndex;
+
+use crate::{
+    model::{
+        components::{
+            Fixture,
+            FixtureKind,
+            Inventory,
+            Item,
+            ItemRelation,
+            Pawn,
+        },
+        ids::{FixtureId, ItemId, PawnId},
+    },
+    world::WorldGrid,
+};
 
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InvariantMode {
@@ -50,7 +60,11 @@ fn run_invariant_checks(world: &mut World) {
     }
     match cfg.mode {
         InvariantMode::Panic => {
-            panic!("Invariant violations ({}):\n{}", errors.len(), errors.join("\n"));
+            panic!(
+                "Invariant violations ({}):\n{}",
+                errors.len(),
+                errors.join("\n")
+            );
         }
         InvariantMode::Warn => {
             for e in errors {
@@ -132,7 +146,13 @@ pub fn validate_world(world: &mut World) -> Vec<String> {
     }
 
     // Fixture invariants (collect first)
-    let fixture_infos: Vec<(Entity, FixtureId, FixtureKind, Option<u32>, Option<TileId>)> = {
+    let fixture_infos: Vec<(
+        Entity,
+        FixtureId,
+        FixtureKind,
+        Option<u32>,
+        Option<TileId>,
+    )> = {
         let mut out = Vec::new();
         let mut q = world.query::<(Entity, &Fixture, Option<&TileId>)>();
         for (e, fixture, pos_opt) in q.iter(world) {
@@ -150,7 +170,8 @@ pub fn validate_world(world: &mut World) -> Vec<String> {
         let fixture_index = world.resource::<IdIndex<FixtureId>>();
         let fixture_tile_index = world.resource::<TileMapIndex<FixtureId>>();
         let grid = world.get_resource::<WorldGrid>().cloned();
-        for (e, fid, kind, countdown, pos_opt) in fixture_infos.iter().cloned() {
+        for (e, fid, kind, countdown, pos_opt) in fixture_infos.iter().cloned()
+        {
             if pos_opt.is_none() {
                 errors.push(format!("Fixture {:?} missing TileId", fid));
             }
@@ -163,7 +184,8 @@ pub fn validate_world(world: &mut World) -> Vec<String> {
             }
             if matches!(kind, FixtureKind::BerryBush) && countdown.is_none() {
                 errors.push(format!(
-                    "BerryBush {:?} has None harvest_countdown; expected Some(>0 or reset)",
+                    "BerryBush {:?} has None harvest_countdown; expected \
+                     Some(>0 or reset)",
                     fid
                 ));
             }
@@ -191,48 +213,16 @@ pub fn validate_world(world: &mut World) -> Vec<String> {
     }
 
     // Item invariants (collect first)
-    let item_infos: Vec<(
-        Entity,
-        ItemId,
-        u32,
-        Option<TileId>,
-        Option<PawnId>,
-        Option<FixtureId>,
-    )> = {
+    let item_infos: Vec<(Entity, Item, ItemRelation)> = {
         let mut out = Vec::new();
-        let mut q = world.query::<(
-            Entity,
-            &Item,
-            Option<&TileId>,
-            Option<&CarriedBy>,
-            Option<&InFixture>,
-        )>();
-        for (e, item, pos, carried, infix) in q.iter(world) {
-            out.push((
-                e,
-                item.id,
-                item.qty,
-                pos.copied(),
-                carried.map(|c| c.0),
-                infix.map(|f| f.0),
-            ));
-        }
-        out
+        let mut q = world.query::<(Entity, &Item, &ItemRelation)>();
+        q.iter(world).map(|(e, &i, &r)| (e, i, r)).collect()
     };
     {
         let item_index = world.resource::<IdIndex<ItemId>>();
         let item_tile_index = world.resource::<TileMapIndex<ItemId>>();
         let grid = world.get_resource::<WorldGrid>().cloned();
-        for (e, iid, qty, pos, carried, infix) in item_infos.iter().copied() {
-            let count = pos.is_some() as u8
-                + carried.is_some() as u8
-                + infix.is_some() as u8;
-            if count != 1 {
-                errors.push(format!(
-                    "Item {:?} must have exactly one of [TileId|CarriedBy|InFixture], has {}",
-                    iid, count
-                ));
-            }
+        for (e, item, relation) in item_infos.iter() {
             let ent = item_index.get(&iid);
             if ent != e {
                 errors.push(format!(
@@ -246,7 +236,8 @@ pub fn validate_world(world: &mut World) -> Vec<String> {
             if let Some(p) = pos {
                 if carried.is_some() || infix.is_some() {
                     errors.push(format!(
-                        "Item {:?} on ground but also has ownership (carried/infixture)",
+                        "Item {:?} on ground but also has ownership \
+                         (carried/infixture)",
                         iid
                     ));
                 }
@@ -287,7 +278,8 @@ pub fn validate_world(world: &mut World) -> Vec<String> {
                 match pawn_inventory_items.get(&iid) {
                     Some(owner) if *owner == pid => {}
                     Some(owner) => errors.push(format!(
-                        "Item {:?} carried by {:?} but appears in pawn {:?} inventory",
+                        "Item {:?} carried by {:?} but appears in pawn {:?} \
+                         inventory",
                         iid, pid, owner
                     )),
                     None => errors.push(format!(
@@ -306,7 +298,8 @@ pub fn validate_world(world: &mut World) -> Vec<String> {
                 match fixture_inventory_items.get(&iid) {
                     Some(owner) if *owner == fid => {}
                     Some(owner) => errors.push(format!(
-                        "Item {:?} in fixture {:?} but appears in fixture {:?} inventory",
+                        "Item {:?} in fixture {:?} but appears in fixture \
+                         {:?} inventory",
                         iid, fid, owner
                     )),
                     None => errors.push(format!(
@@ -367,27 +360,41 @@ mod tests {
                 crate::WorldTag,
                 Pawn {
                     id: pawn_id,
-                    inventory: Inventory(vec![(carried_item_id, crate::model::components::ItemKind::Berry)]),
+                    inventory: Inventory(vec![(
+                        carried_item_id,
+                        crate::model::components::ItemKind::Berry,
+                    )]),
                     sleep: simkit_core::fixed_point::Q40p24::ONE,
                     hunger: simkit_core::fixed_point::Q40p24::ONE,
                 },
                 TileId::new(1, 1),
             ))
             .id();
-        app.world_mut().resource_mut::<IdIndex<PawnId>>().insert(pawn_id, pawn_entity);
-        app.world_mut().resource_mut::<TileMapIndex<PawnId>>().move_id(None, TileId::new(1,1), pawn_id);
+        app.world_mut()
+            .resource_mut::<IdIndex<PawnId>>()
+            .insert(pawn_id, pawn_entity);
+        app.world_mut()
+            .resource_mut::<TileMapIndex<PawnId>>()
+            .move_id(None, TileId::new(1, 1), pawn_id);
 
         let item_entity = app
             .world_mut()
             .spawn((
                 crate::WorldTag,
-                Item { id: carried_item_id, kind: crate::model::components::ItemKind::Berry, qty: 1 },
+                Item {
+                    id: carried_item_id,
+                    kind: crate::model::components::ItemKind::Berry,
+                    qty: 1,
+                },
                 CarriedBy(pawn_id),
             ))
             .id();
-        app.world_mut().resource_mut::<IdIndex<ItemId>>().insert(carried_item_id, item_entity);
+        app.world_mut()
+            .resource_mut::<IdIndex<ItemId>>()
+            .insert(carried_item_id, item_entity);
 
-        // Spawn a fixture at (2,2) with an inventory item and be a BerryBush with countdown
+        // Spawn a fixture at (2,2) with an inventory item and be a BerryBush
+        // with countdown
         let fixture_id = {
             let mut idx = app.world_mut().resource_mut::<IdIndex<FixtureId>>();
             idx.alloc(None)
@@ -403,24 +410,37 @@ mod tests {
                 Fixture {
                     id: fixture_id,
                     kind: FixtureKind::BerryBush,
-                    inventory: Inventory(vec![(fixture_item_id, crate::model::components::ItemKind::Berry)]),
+                    inventory: Inventory(vec![(
+                        fixture_item_id,
+                        crate::model::components::ItemKind::Berry,
+                    )]),
                     harvest_countdown: Some(100),
                 },
                 TileId::new(2, 2),
             ))
             .id();
-        app.world_mut().resource_mut::<IdIndex<FixtureId>>().insert(fixture_id, fixture_entity);
-        app.world_mut().resource_mut::<TileMapIndex<FixtureId>>().move_id(None, TileId::new(2,2), fixture_id);
+        app.world_mut()
+            .resource_mut::<IdIndex<FixtureId>>()
+            .insert(fixture_id, fixture_entity);
+        app.world_mut()
+            .resource_mut::<TileMapIndex<FixtureId>>()
+            .move_id(None, TileId::new(2, 2), fixture_id);
 
         let fixture_item_entity = app
             .world_mut()
             .spawn((
                 crate::WorldTag,
-                Item { id: fixture_item_id, kind: crate::model::components::ItemKind::Berry, qty: 1 },
+                Item {
+                    id: fixture_item_id,
+                    kind: crate::model::components::ItemKind::Berry,
+                    qty: 1,
+                },
                 InFixture(fixture_id),
             ))
             .id();
-        app.world_mut().resource_mut::<IdIndex<ItemId>>().insert(fixture_item_id, fixture_item_entity);
+        app.world_mut()
+            .resource_mut::<IdIndex<ItemId>>()
+            .insert(fixture_item_id, fixture_item_entity);
 
         // Spawn a ground item at (3,3)
         let ground_item_id = {
@@ -431,12 +451,20 @@ mod tests {
             .world_mut()
             .spawn((
                 crate::WorldTag,
-                Item { id: ground_item_id, kind: crate::model::components::ItemKind::Berry, qty: 1 },
+                Item {
+                    id: ground_item_id,
+                    kind: crate::model::components::ItemKind::Berry,
+                    qty: 1,
+                },
                 TileId::new(3, 3),
             ))
             .id();
-        app.world_mut().resource_mut::<IdIndex<ItemId>>().insert(ground_item_id, ground_item_entity);
-        app.world_mut().resource_mut::<TileMapIndex<ItemId>>().move_id(None, TileId::new(3,3), ground_item_id);
+        app.world_mut()
+            .resource_mut::<IdIndex<ItemId>>()
+            .insert(ground_item_id, ground_item_entity);
+        app.world_mut()
+            .resource_mut::<TileMapIndex<ItemId>>()
+            .move_id(None, TileId::new(3, 3), ground_item_id);
 
         let errs = validate_world(app.world_mut());
         assert!(errs.is_empty(), "unexpected errors: {:?}", errs);
@@ -448,15 +476,58 @@ mod tests {
         setup_indices(&mut app, 3, 3);
 
         // Item with both TileId and CarriedBy
-        let pid = { app.world_mut().resource_mut::<IdIndex<PawnId>>().alloc(None) };
-        let iid = { app.world_mut().resource_mut::<IdIndex<ItemId>>().alloc(None) };
-        let pawn_e = app.world_mut().spawn((crate::WorldTag, Pawn { id: pid, inventory: Inventory(vec![(iid, crate::model::components::ItemKind::Berry)]), sleep: simkit_core::fixed_point::Q40p24::ONE, hunger: simkit_core::fixed_point::Q40p24::ONE }, TileId::new(0,0))).id();
-        app.world_mut().resource_mut::<IdIndex<PawnId>>().insert(pid, pawn_e);
-        app.world_mut().resource_mut::<TileMapIndex<PawnId>>().move_id(None, TileId::new(0,0), pid);
+        let pid = {
+            app.world_mut()
+                .resource_mut::<IdIndex<PawnId>>()
+                .alloc(None)
+        };
+        let iid = {
+            app.world_mut()
+                .resource_mut::<IdIndex<ItemId>>()
+                .alloc(None)
+        };
+        let pawn_e = app
+            .world_mut()
+            .spawn((
+                crate::WorldTag,
+                Pawn {
+                    id: pid,
+                    inventory: Inventory(vec![(
+                        iid,
+                        crate::model::components::ItemKind::Berry,
+                    )]),
+                    sleep: simkit_core::fixed_point::Q40p24::ONE,
+                    hunger: simkit_core::fixed_point::Q40p24::ONE,
+                },
+                TileId::new(0, 0),
+            ))
+            .id();
+        app.world_mut()
+            .resource_mut::<IdIndex<PawnId>>()
+            .insert(pid, pawn_e);
+        app.world_mut()
+            .resource_mut::<TileMapIndex<PawnId>>()
+            .move_id(None, TileId::new(0, 0), pid);
 
-        let item_e = app.world_mut().spawn((crate::WorldTag, Item { id: iid, kind: crate::model::components::ItemKind::Berry, qty:1 }, TileId::new(1,1), CarriedBy(pid))).id();
-        app.world_mut().resource_mut::<IdIndex<ItemId>>().insert(iid, item_e);
-        app.world_mut().resource_mut::<TileMapIndex<ItemId>>().move_id(None, TileId::new(1,1), iid);
+        let item_e = app
+            .world_mut()
+            .spawn((
+                crate::WorldTag,
+                Item {
+                    id: iid,
+                    kind: crate::model::components::ItemKind::Berry,
+                    qty: 1,
+                },
+                TileId::new(1, 1),
+                CarriedBy(pid),
+            ))
+            .id();
+        app.world_mut()
+            .resource_mut::<IdIndex<ItemId>>()
+            .insert(iid, item_e);
+        app.world_mut()
+            .resource_mut::<TileMapIndex<ItemId>>()
+            .move_id(None, TileId::new(1, 1), iid);
 
         let errs = validate_world(app.world_mut());
         assert!(errs.iter().any(|e| e.contains("must have exactly one")));

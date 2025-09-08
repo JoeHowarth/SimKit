@@ -9,7 +9,9 @@ use bevy::prelude::*;
 
 // Typed ID newtypes used across crates. Keep minimal now; extend later.
 
-pub trait SimId: Debug + Copy + Eq + Ord + PartialOrd + Hash + Send + Sync + 'static {
+pub trait SimId:
+    Debug + Copy + Eq + Ord + PartialOrd + Hash + Send + Sync + 'static
+{
     type Type: HasSimId;
     fn from_u64(v: u64) -> Self;
     fn to_u64(self) -> u64;
@@ -142,11 +144,22 @@ impl<T: SimId> IdIndex<T> {
         id
     }
 
+    pub fn remove(&mut self, id: T) {
+        match self.0.entry(id).and_modify(|e| *e = None) {
+            std::collections::btree_map::Entry::Vacant(_) => {
+                panic!("IdIndex does not contain id: {id:?}")
+            }
+            std::collections::btree_map::Entry::Occupied(_) => {}
+        }
+    }
+
     #[inline]
     pub fn insert(&mut self, id: T, e: Entity) {
         if let Some(Some(existing)) = self.0.insert(id, Some(e)) {
             if existing != e {
-                panic!("IdIndex already contains id: {id:?} entity: {existing:?}");
+                panic!(
+                    "IdIndex already contains id: {id:?} entity: {existing:?}"
+                );
             }
         }
     }

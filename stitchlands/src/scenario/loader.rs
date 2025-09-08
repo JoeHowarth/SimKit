@@ -265,7 +265,7 @@ fn spawn_pawns_from_def(
                         kind,
                         qty: it.qty,
                     },
-                    CarriedBy(typed),
+                    ItemRelation::CarriedBy(typed),
                 ))
                 .id();
             item_index.insert(typed_item, entity);
@@ -372,7 +372,7 @@ fn spawn_fixtures_from_def(
                         kind,
                         qty: def.qty,
                     },
-                    InFixture(typed),
+                    ItemRelation::InFixture(typed),
                 ))
                 .id();
             item_index.insert(typed_item, entity);
@@ -701,12 +701,10 @@ mod tests {
         };
 
         // Item should be carried by this pawn and not on ground
-        let mut item_q = world.query::<(Option<&CarriedBy>, Option<&InFixture>, Option<&TileId>)>();
+        let mut item_q = world.query::<&ItemRelation>();
         let ent = world.resource::<IdIndex<ItemId>>().get(&item_id);
-        let (carried_by, in_fixture, tile) = item_q.get(world, ent).unwrap();
-        assert_eq!(carried_by, Some(&CarriedBy(pawn_id)));
-        assert_eq!(in_fixture, None);
-        assert_eq!(tile, None);
+        let relation = item_q.get(world, ent).unwrap();
+        assert_eq!(relation, &ItemRelation::CarriedBy(pawn_id));
     }
 
     #[test]
@@ -811,10 +809,9 @@ mod tests {
         // and should NOT have a TileId on the ground.
         // CURRENT BEHAVIOR: item is spawned on the ground with TileId and no InFixture.
         // This assertion will FAIL until loader attaches items to fixtures.
-        let mut q = world.query::<(Option<&InFixture>, Option<&TileId>)>();
+        let mut q = world.query::<&ItemRelation>();
         let ent = world.resource::<IdIndex<ItemId>>().get(&item_id);
-        let (in_fix, on_ground) = q.get(world, ent).unwrap();
-        assert_eq!(in_fix, Some(&InFixture(fixture_copy.id)));
-        assert_eq!(on_ground, None);
+        let relation = q.get(world, ent).unwrap();
+        assert_eq!(relation, &ItemRelation::InFixture(fixture_copy.id));
     }
 }

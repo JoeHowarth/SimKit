@@ -7,24 +7,7 @@ use simkit_core::{
 };
 
 use crate::{
-    model::{
-        components::{
-            CarriedBy,
-            Fixture,
-            FixtureKind,
-            FixtureQuery,
-            FixtureQueryMut,
-            InFixture,
-            Inventory,
-            Item,
-            ItemKind,
-            ItemQuery,
-            ItemQueryMut,
-            Pawn,
-            PawnQueryMut,
-        },
-        ids::*,
-    },
+    model::*,
     tasks::{
         manhattan,
         nearest_fixture_with_item,
@@ -47,7 +30,7 @@ pub enum ToilKind {
         path: VecDeque<TileId>,
     },
     PickUp {
-        item_loc: ItemLocator,
+        item_id: ItemId,
     },
     PutDown {
         // consider allowing ItemId or ItemKind here
@@ -83,11 +66,7 @@ pub fn step_jobs(
     mut completed_tasks: EventWriter<CompletedTask>,
     mut pawns: PawnQueryMut<(&mut TileId, &mut Job)>,
     mut q: Query<&mut TileId>,
-    mut items: ItemQueryMut<(
-        Option<&mut TileId>,
-        Option<&mut CarriedBy>,
-        Option<&mut InFixture>,
-    )>,
+    mut items: ItemQueryMut<&mut ItemRelation>,
     mut fixtures: FixtureQueryMut<&TileId>,
     mut pawn_tile_map_index: ResMut<TileMapIndex<PawnId>>,
     mut item_tile_map_index: ResMut<TileMapIndex<ItemId>>,
@@ -135,11 +114,7 @@ pub fn step_toil<'a>(
     toil: &mut ToilKind,
     pawn: &mut Pawn,
     pawn_tile: &mut TileId,
-    items: &mut ItemQueryMut<(
-        Option<&mut TileId>,
-        Option<&mut CarriedBy>,
-        Option<&mut InFixture>,
-    )>,
+    items: &mut ItemQueryMut<&mut ItemRelation>,
     fixtures: &mut FixtureQueryMut<&TileId>,
     pawn_tile_map_index: &mut ResMut<TileMapIndex<PawnId>>,
     item_tile_map_index: &mut ResMut<TileMapIndex<ItemId>>,
@@ -182,51 +157,40 @@ pub fn step_toil<'a>(
             );
             return ToilResult::Done;
         }
-        ToilKind::PickUp { item_loc } => {
-            let item_id = item_loc.item_id();
-            let (item, (item_pos, carried_by, in_fixture)) =
-                items.get(&item_id);
+        ToilKind::PickUp { item_id } => {
+            let (item, mut item_relation) = items.get_mut(&item_id);
+            let item_joined = item.join_no_pawns(*item_relation, |id| {
+                fixtures.get(&id).1.clone()
+            });
 
-            if manhattan(*pawn_tile, item_loc.tile_id()) > 1 {
+            if manhattan(*pawn_tile, item_joined.pos) > 1 {
                 return ToilResult::Failed(format!(
                     "Invalid PickUp toil: item not adjacent pawn_pos: \
                      {pawn_tile:?} item_pos: {:?}",
-                    item_loc.tile_id()
+                    item_joined.pos
                 ));
             }
 
-            match &item_loc {
-                ItemLocator::InInventory(item_id, item_tile) => {
+            match &item_joined.relation {
+                ItemRelation::CarriedBy(pawn_id) => {
                     warn!(
                         "PickUp toil should not be planned if item already in \
                          inventory"
                     );
-                    assert_eq!(carried_by, Some(&CarriedBy(pawn.id)));
-                    assert!(pawn.inventory.contains(item_id));
-                    assert_eq!(in_fixture, None);
                     return ToilResult::Done;
                 }
-                ItemLocator::OnGround(item_id, item_tile, _) => {
-                    assert_eq!(item_pos, Some(&item_loc.tile_id()));
+                ItemRelation::OnGround(item_tile) => {
                     item_tile_map_index.remove(*item_tile, *item_id);
-                    commands
-                        .entity(items.entity(item_id))
-                        .remove::<TileId>()
-                        .insert(CarriedBy(pawn.id));
-                    pawn.inventory.add((*item_id, item.kind));
                 }
-                ItemLocator::InFixture(fixture_id, item_tile, item_id, _) => {
-                    assert_eq!(carried_by, None);
-                    assert_eq!(in_fixture, Some(&InFixture(*fixture_id)));
-                    commands
-                        .entity(items.entity(item_id))
-                        .remove::<InFixture>()
-                        .insert(CarriedBy(pawn.id));
+                ItemRelation::InFixture(fixture_id) => {
                     let (mut fixture, _) = fixtures.get_mut(fixture_id);
                     fixture.inventory.remove(&item_id);
-                    pawn.inventory.add((*item_id, item.kind));
                 }
             }
+
+            // Update item relation
+            *item_relation = ItemRelation::CarriedBy(pawn.id);
+            pawn.inventory.add((*item_id, item.kind));
             return ToilResult::Done;
         }
         ToilKind::PutDown {
@@ -234,25 +198,34 @@ pub fn step_toil<'a>(
             target_tile,
         } => {
             assert!(pawn.inventory.contains(&item_id), "Item not in inventory");
-            let (_, (item_pos, carried_by, in_fixture)) = items.get(item_id);
-            assert_eq!(carried_by, Some(&CarriedBy(pawn.id)));
-            assert_eq!(item_pos, None);
-            assert_eq!(in_fixture, None);
+            let (item, item_relation) = items.get(item_id);
+
             pawn.inventory.remove(&item_id);
             item_tile_map_index.move_id(None, *target_tile, *item_id);
-            commands
-                .entity(items.entity(item_id))
-                .insert(*target_tile)
-                .remove::<CarriedBy>();
+            *items.get_mut(item_id).1 = ItemRelation::OnGround(*target_tile);
 
             return ToilResult::Done;
         }
-        ToilKind::Plant { seed_id, tile_id } => {
-            // Check index invariants
-            let (item, (item_pos, carried_by, in_fixture)) = items.get(seed_id);
-            assert_eq!(item_pos, None);
-            assert_eq!(carried_by, Some(&CarriedBy(pawn.id)));
-            assert_eq!(in_fixture, None);
+        ToilKind::Plant {
+            seed_id,
+            tile_id: target_tile_id,
+        } => {
+            let (item, item_relation) = items.get(seed_id);
+            // Check preconditions
+            assert_eq!(item.kind, ItemKind::Berry);
+            assert_eq!(*item_relation, ItemRelation::CarriedBy(pawn.id));
+            assert!(pawn.inventory.contains(&seed_id));
+            if manhattan(*pawn_tile, *target_tile_id) > 1 {
+                return ToilResult::Failed(format!(
+                    "Invalid Plant toil: target not adjacent pawn_pos: \
+                     {pawn_tile:?} target_pos: {:?}",
+                    target_tile_id
+                ));
+            }
+
+            // Update item components
+            commands.entity(items.entity(seed_id)).despawn();
+            items.index.remove(*seed_id);
             pawn.inventory.remove(&seed_id);
 
             // Create new fixture
@@ -265,18 +238,12 @@ pub fn step_toil<'a>(
                         inventory: Inventory::default(),
                         harvest_countdown: Some(100),
                     },
-                    *tile_id,
+                    *target_tile_id,
                     Name::new(format!("BerryBush#{}", fixture_id.0)),
                 ))
                 .id();
             fixtures.index.insert(fixture_id, fixture_entity);
-            fixture_tile_index.move_id(None, *tile_id, fixture_id);
-
-            // Update item components
-            commands
-                .entity(items.entity(seed_id))
-                .remove::<CarriedBy>()
-                .insert(InFixture(fixture_id));
+            fixture_tile_index.move_id(None, *target_tile_id, fixture_id);
 
             return ToilResult::Done;
         }
@@ -296,7 +263,7 @@ pub fn step_toil<'a>(
             );
 
             // Update fixture
-            fixture.harvest_countdown = None;
+            fixture.harvest_countdown = Some(100);
 
             // Create new item
             let item_id = items.index.alloc(None);
@@ -308,7 +275,7 @@ pub fn step_toil<'a>(
                         qty: 1,
                     },
                     Name::new(format!("Berry#{}", item_id.0)),
-                    CarriedBy(pawn.id),
+                    ItemRelation::CarriedBy(pawn.id),
                 ))
                 .id();
             items.index.insert(item_id, item_entity);
@@ -320,10 +287,9 @@ pub fn step_toil<'a>(
         }
         ToilKind::Consume { item_id } => {
             assert!(pawn.inventory.contains(&item_id), "Item not in inventory");
-            let (item, (item_pos, carried_by, in_fixture)) = items.get(item_id);
-            assert_eq!(item_pos, None);
-            assert_eq!(carried_by, Some(&CarriedBy(pawn.id)));
-            assert_eq!(in_fixture, None);
+            let (item, item_relation) = items.get(item_id);
+            assert_eq!(*item_relation, ItemRelation::CarriedBy(pawn.id));
+
             assert_eq!(item.kind, ItemKind::Berry);
             assert!(pawn.inventory.contains(&item_id));
             pawn.inventory.remove(&item_id);
@@ -359,7 +325,7 @@ impl JobKind {
         pawn: &Pawn,
         pawn_tile: &TileId,
         tasks: &TaskBoard,
-        items: &ItemQuery<&TileId>,
+        items: &ItemQuery<&ItemRelation>,
         fixtures: &FixtureQuery<&TileId>,
         fixture_tile_index: &TileMapIndex<FixtureId>,
     ) -> Result<VecDeque<ToilKind>, String> {
@@ -383,7 +349,7 @@ pub fn build_plan_for_task(
     task: &Task,
     pawn: &Pawn,
     pawn_tile: &TileId,
-    items: &ItemQuery<&TileId>,
+    items: &ItemQuery<&ItemRelation>,
     fixtures: &FixtureQuery<&TileId>,
     fixture_tile_index: &TileMapIndex<FixtureId>,
 ) -> Result<VecDeque<ToilKind>, String> {
@@ -425,12 +391,20 @@ pub fn build_plan_for_task(
             )
             .ok_or_else(|| format!("Failed to acquire item {:?}", item_kind))?;
 
+            let seed_pos = match items.get(&seed).1 {
+                ItemRelation::CarriedBy(_) => *pawn_tile,
+                ItemRelation::InFixture(fixture_id) => {
+                    *fixtures.get(fixture_id).1
+                }
+                ItemRelation::OnGround(tile_id) => *tile_id,
+            };
+
             plan.push_back(ToilKind::MoveTo {
                 target: *target_tile_id,
-                path: manhattan_path(seed.tile_id(), *target_tile_id),
+                path: manhattan_path(seed_pos, *target_tile_id),
             });
             plan.push_back(ToilKind::Plant {
-                seed_id: seed.item_id(),
+                seed_id: seed,
                 tile_id: *target_tile_id,
             });
             Ok(plan)
@@ -466,10 +440,10 @@ pub fn build_sleep_plan(
 pub fn build_eat_plan(
     pawn: &Pawn,
     pawn_tile: &TileId,
-    items: &ItemQuery<&TileId>,
+    items: &ItemQuery<&ItemRelation>,
     fixtures: &FixtureQuery<&TileId>,
 ) -> Result<VecDeque<ToilKind>, String> {
-    let Some((mut plan, item_locator)) = build_acquire_item_plan(
+    let Some((mut plan, item_id)) = build_acquire_item_plan(
         pawn,
         pawn_tile,
         &ItemKind::Berry,
@@ -478,9 +452,7 @@ pub fn build_eat_plan(
     ) else {
         return Err(format!("Failed to acquire item {:?}", ItemKind::Berry));
     };
-    plan.push_back(ToilKind::Consume {
-        item_id: item_locator.item_id(),
-    });
+    plan.push_back(ToilKind::Consume { item_id });
     Ok(plan)
 }
 
@@ -488,28 +460,32 @@ fn build_acquire_item_plan(
     pawn: &Pawn,
     pawn_pos: &TileId,
     item_kind: &ItemKind,
-    items: &ItemQuery<&TileId>,
+    items: &ItemQuery<&ItemRelation>,
     fixtures: &FixtureQuery<&TileId>,
-) -> Option<(VecDeque<ToilKind>, ItemLocator)> {
+) -> Option<(VecDeque<ToilKind>, ItemId)> {
     if let Some(item_id) = pawn.inventory.find(*item_kind) {
-        return Some((
-            VecDeque::new(),
-            ItemLocator::InInventory(item_id, *pawn_pos),
-        ));
+        return Some((VecDeque::new(), item_id));
     }
 
     let on_ground = nearest_item_on_ground(item_kind, pawn_pos, items);
     let fixture = nearest_fixture_with_item(item_kind, pawn_pos, fixtures);
-    let closer = closer_option_item_locator(on_ground, fixture)?;
+    let (item_id, _dist) = closer_option_item_locator(on_ground, fixture)?;
+
+    let item_pos = match items.get(&item_id).1 {
+        ItemRelation::CarriedBy(pawn_id) => *pawn_pos,
+        ItemRelation::InFixture(fixture_id) => *fixtures.get(fixture_id).1,
+        ItemRelation::OnGround(tile_id) => *tile_id,
+    };
+
     Some((
         VecDeque::from_iter([
             ToilKind::MoveTo {
-                target: closer.tile_id(),
-                path: manhattan_path(*pawn_pos, closer.tile_id()),
+                target: item_pos,
+                path: manhattan_path(*pawn_pos, item_pos),
             },
-            ToilKind::PickUp { item_loc: closer },
+            ToilKind::PickUp { item_id },
         ]),
-        closer,
+        item_id,
     ))
 }
 
@@ -555,11 +531,17 @@ impl ItemLocator {
 }
 
 pub fn closer_option_item_locator(
-    a: Option<ItemLocator>,
-    b: Option<ItemLocator>,
-) -> Option<ItemLocator> {
+    a: Option<(ItemId, u32)>,
+    b: Option<(ItemId, u32)>,
+) -> Option<(ItemId, u32)> {
     match (a, b) {
-        (Some(a), Some(b)) => Some(a.closer(b)),
+        (Some(a), Some(b)) => {
+            if a.1 < b.1 {
+                Some(a)
+            } else {
+                Some(b)
+            }
+        }
         (Some(a), None) => Some(a),
         (None, Some(b)) => Some(b),
         (None, None) => None,
@@ -604,57 +586,6 @@ mod tests {
                 TileId::new(3, 3),
                 TileId::new(3, 4)
             ])
-        );
-    }
-
-    #[test]
-    fn test_itemlocator_getters_and_distance() {
-        let inv = ItemLocator::InInventory(ItemId(1), TileId::new(5, 5));
-        assert_eq!(inv.item_id(), ItemId(1));
-        assert_eq!(inv.tile_id(), TileId::new(5, 5));
-        assert_eq!(inv.distance(), 0);
-
-        let ground = ItemLocator::OnGround(ItemId(2), TileId::new(1, 2), 7);
-        assert_eq!(ground.item_id(), ItemId(2));
-        assert_eq!(ground.tile_id(), TileId::new(1, 2));
-        assert_eq!(ground.distance(), 7);
-
-        let fixture =
-            ItemLocator::InFixture(FixtureId(3), TileId::new(9, 9), ItemId(4), 2);
-        assert_eq!(fixture.item_id(), ItemId(4));
-        assert_eq!(fixture.tile_id(), TileId::new(9, 9));
-        assert_eq!(fixture.distance(), 2);
-    }
-
-    #[test]
-    fn test_itemlocator_closer_prefers_smaller_distance() {
-        let a = ItemLocator::OnGround(ItemId(10), TileId::new(0, 0), 3);
-        let b = ItemLocator::OnGround(ItemId(11), TileId::new(1, 1), 5);
-        assert_eq!(a.closer(b), a);
-
-        // Also ensure symmetry of comparison result
-        assert_eq!(b.closer(a), a);
-    }
-
-    #[test]
-    fn test_closer_option_item_locator_behavior() {
-        let some_near = ItemLocator::OnGround(ItemId(20), TileId::new(2, 2), 1);
-        let some_far = ItemLocator::OnGround(ItemId(21), TileId::new(3, 3), 9);
-
-        // Some vs None picks Some
-        assert_eq!(
-            closer_option_item_locator(Some(some_near), None),
-            Some(some_near)
-        );
-        assert_eq!(
-            closer_option_item_locator(None, Some(some_far)),
-            Some(some_far)
-        );
-
-        // Two Somes picks the closer one
-        assert_eq!(
-            closer_option_item_locator(Some(some_near), Some(some_far)),
-            Some(some_near)
         );
     }
 }

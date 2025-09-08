@@ -11,12 +11,17 @@ use bevy::{
 use serde::{Deserialize, Serialize};
 use simkit_core::{
     fixed_point::Q40p24,
+    grid::TileId,
     ids::{HasSimId, IdIndex, SimId},
     impl_hassimid,
 };
 
 use crate::{
-    model::ids::{FixtureId, ItemId, PawnId},
+    model::{
+        ids::{FixtureId, ItemId, PawnId},
+        FixtureQuery,
+        PawnQuery,
+    },
     WorldTag,
 };
 
@@ -114,11 +119,55 @@ impl FromStr for ItemKind {
     }
 }
 
-#[derive(Component, Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub struct CarriedBy(pub PawnId);
+#[derive(Component, Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
+pub enum ItemRelation {
+    CarriedBy(PawnId),
+    InFixture(FixtureId),
+    OnGround(TileId),
+}
 
-#[derive(Component, Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub struct InFixture(pub FixtureId);
+impl Item {
+    pub fn join_no_pawns(
+        &self,
+        relation: ItemRelation,
+        fixture_pos: impl Fn(FixtureId) -> TileId,
+    ) -> ItemJoined {
+        let pos = match relation {
+            ItemRelation::InFixture(fixture_id) => fixture_pos(fixture_id),
+            ItemRelation::OnGround(tile_id) => tile_id,
+            ItemRelation::CarriedBy(_) => panic!("Item is carried by a pawn"),
+        };
+        ItemJoined {
+            relation,
+            pos,
+            item: self.clone(),
+        }
+    }
+
+    pub fn join(
+        &self,
+        relation: ItemRelation,
+        fixtures: &FixtureQuery<&TileId>,
+        pawns: &PawnQuery<&TileId>,
+    ) -> ItemJoined {
+        let pos = match relation {
+            ItemRelation::CarriedBy(pawn_id) => *pawns.get(&pawn_id).1,
+            ItemRelation::InFixture(fixture_id) => *fixtures.get(&fixture_id).1,
+            ItemRelation::OnGround(tile_id) => tile_id,
+        };
+        ItemJoined {
+            relation,
+            pos,
+            item: self.clone(),
+        }
+    }
+}
+
+pub struct ItemJoined {
+    pub relation: ItemRelation,
+    pub pos: TileId,
+    pub item: Item,
+}
 
 /// Fixtures
 /// Required components: WorldTag, TileId
@@ -159,116 +208,3 @@ pub enum FixtureKind {
 impl_hassimid!(Pawn, PawnId);
 impl_hassimid!(Item, ItemId);
 impl_hassimid!(Fixture, FixtureId);
-
-#[derive(SystemParam)]
-pub struct IdQuery<
-    'w,
-    's,
-    C: HasSimId,
-    D: bevy::ecs::query::QueryData + 'static,
-    F: QueryFilter + 'static = (),
-> {
-    pub query: Query<'w, 's, (&'static C, D), F>,
-    pub index: Res<'w, IdIndex<<C as HasSimId>::Id>>,
-}
-
-#[derive(SystemParam)]
-pub struct IdQueryMut<
-    'w,
-    's,
-    C: HasSimId,
-    D: bevy::ecs::query::QueryData + 'static,
-    F: QueryFilter + 'static = (),
-> where
-    C: Component<Mutability = bevy::ecs::component::Mutable>,
-{
-    pub query: Query<'w, 's, (&'static mut C, D), F>,
-    pub index: ResMut<'w, IdIndex<<C as HasSimId>::Id>>,
-}
-
-impl<'w, 's, C, D, F> IdQuery<'w, 's, C, D, F>
-where
-    D: QueryData,
-    F: QueryFilter,
-    C: HasSimId,
-{
-    pub fn get(&self, id: &<C as HasSimId>::Id) -> (&'_ C, ROQueryItem<'_, D>) {
-        let entity = self.index.get(id);
-        self.query.get(entity).unwrap()
-    }
-
-    pub fn entity(&'w self, id: &<C as HasSimId>::Id) -> Entity {
-        self.index.get(id)
-    }
-}
-
-impl<'w, 's, C, D, F> IdQueryMut<'w, 's, C, D, F>
-where
-    D: QueryData + 'static,
-    F: QueryFilter + 'static,
-    C: HasSimId
-        + Component<Mutability = bevy::ecs::component::Mutable>
-        + 'static,
-{
-    pub fn get(
-        &'w self,
-        id: &<C as HasSimId>::Id,
-    ) -> (&'w C, ROQueryItem<'w, D>) {
-        let entity = self.index.get(id);
-        self.query.get(entity).unwrap()
-    }
-
-    pub fn get_mut(
-        &mut self,
-        id: &<C as HasSimId>::Id,
-    ) -> (Mut<'_, C>, D::Item<'_>) {
-        let entity = self.index.get(id);
-        self.query.get_mut(entity).unwrap()
-    }
-
-    pub fn entity(&'w self, id: &<C as HasSimId>::Id) -> Entity {
-        self.index.get(id)
-    }
-}
-
-type OnlyItem = (Without<Pawn>, Without<Fixture>);
-type OnlyPawn = (Without<Item>, Without<Fixture>);
-type OnlyFixture = (Without<Pawn>, Without<Item>);
-
-pub type FixtureQuery<'w, 's, D, F = ()> =
-    IdQuery<'w, 's, Fixture, D, (F, OnlyFixture)>;
-pub type ItemQuery<'w, 's, D, F = ()> = IdQuery<'w, 's, Item, D, (F, OnlyItem)>;
-pub type PawnQuery<'w, 's, D, F = ()> = IdQuery<'w, 's, Pawn, D, (F, OnlyPawn)>;
-
-pub type FixtureQueryMut<'w, 's, D, F = ()> =
-    IdQueryMut<'w, 's, Fixture, D, (F, OnlyFixture)>;
-pub type ItemQueryMut<'w, 's, D, F = ()> =
-    IdQueryMut<'w, 's, Item, D, (F, OnlyItem)>;
-pub type PawnQueryMut<'w, 's, D, F = ()> =
-    IdQueryMut<'w, 's, Pawn, D, (F, OnlyPawn)>;
-
-pub trait WorldExt {
-    fn get_simid<Id: SimId>(&self, id: &Id) -> (&Id::Type, Entity);
-    fn get_comp_simid<C: Component, Id: SimId>(
-        &self,
-        id: &Id,
-    ) -> (&Id::Type, Entity, &C);
-}
-
-impl WorldExt for World {
-    fn get_simid<Id: SimId>(&self, id: &Id) -> (&Id::Type, Entity) {
-        let x = self.resource::<IdIndex<Id>>();
-        let e = x.get(id);
-        let entity = self.get::<Id::Type>(e);
-        (entity.unwrap(), e)
-    }
-
-    fn get_comp_simid<C: Component, Id: SimId>(
-        &self,
-        id: &Id,
-    ) -> (&Id::Type, Entity, &C) {
-        let (entity, e) = self.get_simid(id);
-        let component = self.get::<C>(e).unwrap();
-        (entity, e, component)
-    }
-}
