@@ -25,6 +25,7 @@ pub mod snapshot;
 pub mod tasks;
 pub mod toils;
 pub mod world;
+pub mod invariants;
 
 // Resources and markers
 #[derive(Resource, Debug, Clone, Copy)]
