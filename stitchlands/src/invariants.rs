@@ -305,6 +305,45 @@ pub fn validate_world(world: &mut World) -> Vec<String> {
                 }
             }
         }
+
+        // Additional cross-check: scan the entire item tile index to ensure it
+        // is consistent with ItemRelation state for each item.
+        let mut seen: std::collections::HashMap<ItemId, TileId> =
+            std::collections::HashMap::new();
+        let cfg = item_tile_index.0.cfg;
+        for y in 0..(cfg.height as i32) {
+            for x in 0..(cfg.width as i32) {
+                let t = TileId::new(x, y);
+                if let Some(Some(id)) = item_tile_index.0.get(t).copied() {
+                    if let Some(prev) = seen.insert(id, t) {
+                        errors.push(format!(
+                            "Item {:?} appears multiple times in tile index at {:?} and {:?}",
+                            id, prev, t
+                        ));
+                    }
+                    let ent = item_index.get(&id);
+                    // Relation must be present and OnGround at the same tile
+                    match world.get::<ItemRelation>(ent) {
+                        Some(ItemRelation::OnGround(pos)) => {
+                            if *pos != t {
+                                errors.push(format!(
+                                    "Item {:?} in tile index at {:?} but relation OnGround at {:?}",
+                                    id, t, pos
+                                ));
+                            }
+                        }
+                        Some(other) => errors.push(format!(
+                            "Item {:?} in tile index at {:?} but relation is {:?}",
+                            id, t, other
+                        )),
+                        None => errors.push(format!(
+                            "Item {:?} in tile index at {:?} but missing ItemRelation",
+                            id, t
+                        )),
+                    }
+                }
+            }
+        }
     }
 
     errors
@@ -523,6 +562,70 @@ mod tests {
         assert!(
             errs.iter()
                 .any(|e| e.contains("carried") && e.contains("not in pawn inventory")),
+            "unexpected errors: {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn detects_tilemap_relation_mismatch() {
+        let mut app = App::new();
+        setup_indices(&mut app, 3, 3);
+
+        // Create a pawn (not strictly necessary for this test but consistent)
+        let pid = {
+            app.world_mut()
+                .resource_mut::<IdIndex<PawnId>>()
+                .alloc(None)
+        };
+        let pawn_e = app
+            .world_mut()
+            .spawn((
+                crate::WorldTag,
+                Pawn {
+                    id: pid,
+                    inventory: Inventory::default(),
+                    sleep: simkit_core::fixed_point::Q40p24::ONE,
+                    hunger: simkit_core::fixed_point::Q40p24::ONE,
+                },
+                TileId::new(0, 0),
+            ))
+            .id();
+        app.world_mut()
+            .resource_mut::<IdIndex<PawnId>>()
+            .insert(pid, pawn_e);
+
+        // Spawn an item with CarriedBy, but put it into the tile index at (1,1)
+        let iid = {
+            app.world_mut()
+                .resource_mut::<IdIndex<ItemId>>()
+                .alloc(None)
+        };
+        let item_e = app
+            .world_mut()
+            .spawn((
+                crate::WorldTag,
+                Item {
+                    id: iid,
+                    kind: crate::model::components::ItemKind::Berry,
+                    qty: 1,
+                },
+                CarriedBy(pid),
+            ))
+            .id();
+        app.world_mut()
+            .resource_mut::<IdIndex<ItemId>>()
+            .insert(iid, item_e);
+
+        // Incorrectly place it in the tile index
+        app.world_mut()
+            .resource_mut::<TileMapIndex<ItemId>>()
+            .move_id(None, TileId::new(1, 1), iid);
+
+        let errs = validate_world(app.world_mut());
+        assert!(
+            errs.iter()
+                .any(|e| e.contains("in tile index") && e.contains("relation is")),
             "unexpected errors: {:?}",
             errs
         );
