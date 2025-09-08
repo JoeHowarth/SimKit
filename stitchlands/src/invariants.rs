@@ -213,99 +213,95 @@ pub fn validate_world(world: &mut World) -> Vec<String> {
     }
 
     // Item invariants (collect first)
-    let item_infos: Vec<(Entity, Item, ItemRelation)> = {
-        let mut out = Vec::new();
+    let item_infos: Vec<(Entity, ItemId, u32, ItemRelation)> = {
         let mut q = world.query::<(Entity, &Item, &ItemRelation)>();
-        q.iter(world).map(|(e, &i, &r)| (e, i, r)).collect()
+        q.iter(world)
+            .map(|(e, i, &r)| (e, i.id, i.qty, r))
+            .collect()
     };
     {
         let item_index = world.resource::<IdIndex<ItemId>>();
         let item_tile_index = world.resource::<TileMapIndex<ItemId>>();
         let grid = world.get_resource::<WorldGrid>().cloned();
-        for (e, item, relation) in item_infos.iter() {
+        for (e, iid, qty, relation) in item_infos.iter() {
             let ent = item_index.get(&iid);
-            if ent != e {
+            if ent != *e {
                 errors.push(format!(
                     "Item {:?} IdIndex mismatch: index={:?} entity={:?}",
                     iid, ent, e
                 ));
             }
-            if qty == 0 {
+            if *qty == 0 {
                 errors.push(format!("Item {:?} has qty=0", iid));
             }
-            if let Some(p) = pos {
-                if carried.is_some() || infix.is_some() {
-                    errors.push(format!(
-                        "Item {:?} on ground but also has ownership \
-                         (carried/infixture)",
-                        iid
-                    ));
-                }
-                if let Some(grid) = &grid {
-                    if p.x < 0
-                        || p.y < 0
-                        || p.x >= grid.cfg.width as i32
-                        || p.y >= grid.cfg.height as i32
-                    {
+
+            match relation {
+                ItemRelation::OnGround(p) => {
+                    let p = *p;
+                    if let Some(grid) = &grid {
+                        if p.x < 0
+                            || p.y < 0
+                            || p.x >= grid.cfg.width as i32
+                            || p.y >= grid.cfg.height as i32
+                        {
+                            errors.push(format!(
+                                "Item {:?} out of bounds at {:?}",
+                                iid, p
+                            ));
+                        }
+                    }
+                    if item_tile_index.get(p) != Some(*iid) {
                         errors.push(format!(
-                            "Item {:?} out of bounds at {:?}",
+                            "Item {:?} tile index mismatch at {:?}",
                             iid, p
                         ));
                     }
+                    if pawn_inventory_items.contains_key(&iid)
+                        || fixture_inventory_items.contains_key(&iid)
+                    {
+                        errors.push(format!(
+                            "Item {:?} on ground but appears in an inventory",
+                            iid
+                        ));
+                    }
                 }
-                if item_tile_index.get(p) != Some(iid) {
-                    errors.push(format!(
-                        "Item {:?} tile index mismatch at {:?}",
-                        iid, p
-                    ));
+                ItemRelation::CarriedBy(pid) => {
+                    match pawn_inventory_items.get(&iid) {
+                        Some(owner) if *owner == *pid => {}
+                        Some(owner) => errors.push(format!(
+                            "Item {:?} carried by {:?} but appears in pawn {:?} inventory",
+                            iid, pid, owner
+                        )),
+                        None => errors.push(format!(
+                            "Item {:?} carried by {:?} but not in pawn inventory",
+                            iid, pid
+                        )),
+                    }
+                    if fixture_inventory_items.contains_key(&iid) {
+                        errors.push(format!(
+                            "Item {:?} carried by {:?} but appears in a fixture inventory",
+                            iid, pid
+                        ));
+                    }
                 }
-                if pawn_inventory_items.contains_key(&iid)
-                    || fixture_inventory_items.contains_key(&iid)
-                {
-                    errors.push(format!(
-                        "Item {:?} has TileId but appears in an inventory",
-                        iid
-                    ));
-                }
-            }
-            if let Some(pid) = carried {
-                if pos.is_some() || infix.is_some() {
-                    errors.push(format!(
-                        "Item {:?} carried but also has other location",
-                        iid
-                    ));
-                }
-                match pawn_inventory_items.get(&iid) {
-                    Some(owner) if *owner == pid => {}
-                    Some(owner) => errors.push(format!(
-                        "Item {:?} carried by {:?} but appears in pawn {:?} \
-                         inventory",
-                        iid, pid, owner
-                    )),
-                    None => errors.push(format!(
-                        "Item {:?} carried by {:?} but not in pawn inventory",
-                        iid, pid
-                    )),
-                }
-            }
-            if let Some(fid) = infix {
-                if pos.is_some() || carried.is_some() {
-                    errors.push(format!(
-                        "Item {:?} in fixture but also has other location",
-                        iid
-                    ));
-                }
-                match fixture_inventory_items.get(&iid) {
-                    Some(owner) if *owner == fid => {}
-                    Some(owner) => errors.push(format!(
-                        "Item {:?} in fixture {:?} but appears in fixture \
-                         {:?} inventory",
-                        iid, fid, owner
-                    )),
-                    None => errors.push(format!(
-                        "Item {:?} in fixture {:?} but not in its inventory",
-                        iid, fid
-                    )),
+                ItemRelation::InFixture(fid) => {
+                    match fixture_inventory_items.get(&iid) {
+                        Some(owner) if *owner == *fid => {}
+                        Some(owner) => errors.push(format!(
+                            "Item {:?} in fixture {:?} but appears in fixture {:?} inventory",
+                            iid, fid, owner
+                        )),
+                        None => errors.push(format!(
+                            "Item {:?} in fixture {:?} but not in its inventory",
+                            iid, fid
+                        )),
+                    }
+                    if pawn_inventory_items.contains_key(&iid) {
+                        errors.push(format!(
+                            "Item {:?} in fixture {:?} but appears in a pawn inventory",
+                            iid, fid
+                        ));
+                    }
                 }
             }
         }
@@ -317,6 +313,7 @@ pub fn validate_world(world: &mut World) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::components::ItemRelation::*;
 
     fn setup_indices(app: &mut App, width: u32, height: u32) {
         app.insert_resource(WorldGrid {
@@ -456,7 +453,7 @@ mod tests {
                     kind: crate::model::components::ItemKind::Berry,
                     qty: 1,
                 },
-                TileId::new(3, 3),
+                OnGround(TileId::new(3, 3)),
             ))
             .id();
         app.world_mut()
@@ -471,11 +468,11 @@ mod tests {
     }
 
     #[test]
-    fn detects_conflicting_item_location() {
+    fn detects_carried_item_not_in_inventory() {
         let mut app = App::new();
         setup_indices(&mut app, 3, 3);
 
-        // Item with both TileId and CarriedBy
+        // Item is CarriedBy but not present in pawn inventory
         let pid = {
             app.world_mut()
                 .resource_mut::<IdIndex<PawnId>>()
@@ -492,10 +489,7 @@ mod tests {
                 crate::WorldTag,
                 Pawn {
                     id: pid,
-                    inventory: Inventory(vec![(
-                        iid,
-                        crate::model::components::ItemKind::Berry,
-                    )]),
+                    inventory: Inventory(vec![]),
                     sleep: simkit_core::fixed_point::Q40p24::ONE,
                     hunger: simkit_core::fixed_point::Q40p24::ONE,
                 },
@@ -518,18 +512,19 @@ mod tests {
                     kind: crate::model::components::ItemKind::Berry,
                     qty: 1,
                 },
-                TileId::new(1, 1),
                 CarriedBy(pid),
             ))
             .id();
         app.world_mut()
             .resource_mut::<IdIndex<ItemId>>()
             .insert(iid, item_e);
-        app.world_mut()
-            .resource_mut::<TileMapIndex<ItemId>>()
-            .move_id(None, TileId::new(1, 1), iid);
 
         let errs = validate_world(app.world_mut());
-        assert!(errs.iter().any(|e| e.contains("must have exactly one")));
+        assert!(
+            errs.iter()
+                .any(|e| e.contains("carried") && e.contains("not in pawn inventory")),
+            "unexpected errors: {:?}",
+            errs
+        );
     }
 }
