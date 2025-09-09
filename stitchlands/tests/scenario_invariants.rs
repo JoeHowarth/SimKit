@@ -9,54 +9,19 @@ use stitchlands::{
         components::{Fixture, Item, ItemRelation, Pawn},
         ids::{FixtureId, ItemId, PawnId, TaskId},
     },
-    scenario::{load_scenario_from_def, model::ScenarioDef},
-    RngResource,
+    scenario::{model::ScenarioDef},
+    scenario::testutil::{app_with_scenario, load_toml},
 };
-
-#[derive(Resource)]
-struct TestScenario(pub ScenarioDef);
-
-fn sys_load_from_def(
-    commands: Commands,
-    rng: ResMut<RngResource>,
-    pawn_index: ResMut<IdIndex<PawnId>>,
-    item_index: ResMut<IdIndex<ItemId>>,
-    fixture_index: ResMut<IdIndex<FixtureId>>,
-    task_index: ResMut<IdIndex<TaskId>>,
-    scn: Res<TestScenario>,
-) {
-    load_scenario_from_def(
-        commands,
-        rng,
-        pawn_index,
-        item_index,
-        fixture_index,
-        task_index,
-        scn.0.clone(),
-        1,
-    );
-}
 
 #[test]
 fn scenario_toml_loads_and_passes_invariants() {
     // Load TOML scenario file
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/data/small.toml");
-    let s = std::fs::read_to_string(&path).expect("read scenario toml");
-    let scenario: ScenarioDef = toml::from_str(&s).expect("parse scenario toml");
+    let scenario: ScenarioDef = load_toml(&path);
 
     // Build app, load scenario, then run invariants validation
-    let mut app = App::new();
-    app.init_resource::<RngResource>()
-        .init_resource::<IdIndex<PawnId>>()
-        .init_resource::<IdIndex<ItemId>>()
-        .init_resource::<IdIndex<FixtureId>>()
-        .init_resource::<IdIndex<TaskId>>()
-        .insert_resource(TestScenario(scenario))
-        .add_systems(Startup, sys_load_from_def);
-
-    // Run Startup systems to load the scenario
-    app.update();
+    let mut app = app_with_scenario(scenario);
 
     // Explicit checks for small.toml
     {

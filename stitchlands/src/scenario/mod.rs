@@ -1,6 +1,7 @@
 mod cleanup;
 mod loader;
 pub mod model;
+pub mod testutil;
 
 use bevy::prelude::*;
 pub use loader::{load_scenario_from_def, LoadedScenarioMeta};

@@ -551,30 +551,9 @@ fn spawn_fixtures_from_def(
 mod tests {
     use super::*;
     use crate::scenario::model;
-
-    #[derive(Resource)]
-    struct TestScenario(pub ScenarioDef);
-
-    fn sys_load_from_def(
-        commands: Commands,
-        rng: ResMut<RngResource>,
-        pawn_index: ResMut<IdIndex<PawnId>>,
-        item_index: ResMut<IdIndex<ItemId>>,
-        fixture_index: ResMut<IdIndex<FixtureId>>,
-        task_index: ResMut<IdIndex<TaskId>>,
-        scn: Res<TestScenario>,
-    ) {
-        load_scenario_from_def(
-            commands,
-            rng,
-            pawn_index,
-            item_index,
-            fixture_index,
-            task_index,
-            scn.0.clone(),
-            1,
-        );
-    }
+    use crate::scenario::testutil::{
+        app_with_scenario, assert_within_bounds, fixture_by_id, pawn_by_id,
+    };
 
     #[test]
     fn scenario_loading_completes_optional_fields() {
@@ -615,16 +594,7 @@ mod tests {
             tasks: vec![],
         };
 
-        let mut app = App::new();
-        app.init_resource::<RngResource>()
-            .init_resource::<IdIndex<PawnId>>()
-            .init_resource::<IdIndex<ItemId>>()
-            .init_resource::<IdIndex<FixtureId>>()
-            .init_resource::<IdIndex<TaskId>>()
-            .insert_resource(TestScenario(def))
-            .add_systems(Startup, sys_load_from_def);
-
-        app.update();
+        let mut app = app_with_scenario(def);
 
         // Validate pawns
         let world = app.world_mut();
@@ -636,7 +606,7 @@ mod tests {
         assert_eq!(ids[0], 10);
         assert_eq!(ids[1], 1000);
         for (_, pos, _) in pawns.iter() {
-            assert!(pos.x >= 0 && pos.x < 4 && pos.y >= 0 && pos.y < 4);
+            assert_within_bounds(**pos, (4, 4));
         }
         // Names contain provided and fallback
         let names: Vec<String> =
@@ -683,15 +653,7 @@ mod tests {
             tasks: vec![],
         };
 
-        let mut app = App::new();
-        app.init_resource::<RngResource>()
-            .init_resource::<IdIndex<PawnId>>()
-            .init_resource::<IdIndex<ItemId>>()
-            .init_resource::<IdIndex<FixtureId>>()
-            .init_resource::<IdIndex<TaskId>>()
-            .insert_resource(TestScenario(def))
-            .add_systems(Startup, sys_load_from_def);
-        app.update();
+        let mut app = app_with_scenario(def);
 
         let world = app.world_mut();
         let mut item_q = world.query::<(&Item, &ItemRelation)>();
@@ -739,15 +701,7 @@ mod tests {
             tasks: vec![],
         };
 
-        let mut app = App::new();
-        app.init_resource::<RngResource>()
-            .init_resource::<IdIndex<PawnId>>()
-            .init_resource::<IdIndex<ItemId>>()
-            .init_resource::<IdIndex<FixtureId>>()
-            .init_resource::<IdIndex<TaskId>>()
-            .insert_resource(TestScenario(def))
-            .add_systems(Startup, sys_load_from_def);
-        app.update();
+        let mut app = app_with_scenario(def);
 
         let world = app.world_mut();
         let mut item_q = world.query::<(&Item, &ItemRelation)>();
@@ -783,15 +737,7 @@ mod tests {
             tasks: vec![],
         };
 
-        let mut app = App::new();
-        app.init_resource::<RngResource>()
-            .init_resource::<IdIndex<PawnId>>()
-            .init_resource::<IdIndex<ItemId>>()
-            .init_resource::<IdIndex<FixtureId>>()
-            .init_resource::<IdIndex<TaskId>>()
-            .insert_resource(TestScenario(def))
-            .add_systems(Startup, sys_load_from_def);
-        app.update();
+        let mut app = app_with_scenario(def);
 
         let world = app.world_mut();
         let mut pawn_q = world.query::<(&Pawn, &TileId, &Name)>();
@@ -847,15 +793,8 @@ mod tests {
             tasks: vec![],
         };
 
-        let mut app = App::new();
-        app.init_resource::<RngResource>()
-            .init_resource::<IdIndex<PawnId>>()
-            .init_resource::<IdIndex<ItemId>>()
-            .init_resource::<IdIndex<FixtureId>>()
-            .init_resource::<IdIndex<TaskId>>()
-            .insert_resource(TestScenario(def))
-            .add_systems(Startup, sys_load_from_def);
-        app.update();
+
+        let mut app = app_with_scenario(def);
 
         let world = app.world_mut();
         // Fetch pawn and its inventory contents, but copy out the values to
@@ -906,15 +845,7 @@ mod tests {
             tasks: vec![],
         };
 
-        let mut app = App::new();
-        app.init_resource::<RngResource>()
-            .init_resource::<IdIndex<PawnId>>()
-            .init_resource::<IdIndex<ItemId>>()
-            .init_resource::<IdIndex<FixtureId>>()
-            .init_resource::<IdIndex<TaskId>>()
-            .insert_resource(TestScenario(def))
-            .add_systems(Startup, sys_load_from_def);
-        app.update();
+        let mut app = app_with_scenario(def);
 
         let world = app.world_mut();
         let ground_item_id = {
@@ -965,36 +896,20 @@ mod tests {
             tasks: vec![],
         };
 
-        let mut app = App::new();
-        app.init_resource::<RngResource>()
-            .init_resource::<IdIndex<PawnId>>()
-            .init_resource::<IdIndex<ItemId>>()
-            .init_resource::<IdIndex<FixtureId>>()
-            .init_resource::<IdIndex<TaskId>>()
-            .insert_resource(TestScenario(def))
-            .add_systems(Startup, sys_load_from_def);
-        app.update();
+        let mut app = app_with_scenario(def);
 
         let world = app.world_mut();
         // Scope fixture borrow so we can run other queries after.
-        let (fixture_copy, fpos_copy, item_id) = {
-            let mut f_q = world.query::<(&Fixture, &TileId)>();
-            let fixtures: Vec<_> = f_q.iter(world).collect();
-            assert_eq!(fixtures.len(), 1);
-            let (fixture, fpos) = fixtures[0];
-            assert_eq!(fixture.id.0, 123);
-            assert_eq!(fixture.kind, FixtureKind::BerryBush);
-            assert_eq!(fixture.harvest_countdown, Some(100));
-            assert_eq!(*fpos, TileId::new(1, 1));
-
-            let (item_id, _) = fixture
-                .inventory
-                .0
-                .first()
-                .copied()
-                .expect("fixture inventory item present");
-            (fixture.clone(), *fpos, item_id)
-        };
+        let ( _fe, fixture_copy, fpos_copy) = fixture_by_id(world, 123);
+        assert_eq!(fixture_copy.kind, FixtureKind::BerryBush);
+        assert_eq!(fixture_copy.harvest_countdown, Some(100));
+        assert_eq!(fpos_copy, TileId::new(1, 1));
+        let (item_id, _) = fixture_copy
+            .inventory
+            .0
+            .first()
+            .copied()
+            .expect("fixture inventory item present");
 
         // EXPECTED: item should be attached to the fixture via InFixture
         // and should NOT have a TileId on the ground.
@@ -1042,45 +957,17 @@ mod tests {
             tasks: vec![],
         };
 
-        let mut app = App::new();
-        app.init_resource::<RngResource>()
-            .init_resource::<IdIndex<PawnId>>()
-            .init_resource::<IdIndex<ItemId>>()
-            .init_resource::<IdIndex<FixtureId>>()
-            .init_resource::<IdIndex<TaskId>>()
-            .insert_resource(TestScenario(def))
-            .add_systems(Startup, sys_load_from_def);
-        app.update();
+        let mut app = app_with_scenario(def);
 
         let world = app.world_mut();
         // Assert pawn positions
-        let mut pq = world.query::<(&Pawn, &TileId)>();
-        let mut p1_ok = false;
-        let mut p2_ok = false;
-        for (p, pos) in pq.iter(world) {
-            match p.id.0 {
-                1 => {
-                    assert_eq!(*pos, TileId::new(1, 1));
-                    p1_ok = true;
-                }
-                2 => {
-                    assert_eq!(*pos, TileId::new(0, 3));
-                    p2_ok = true;
-                }
-                _ => {}
-            }
-        }
-        assert!(p1_ok && p2_ok);
+        let (_, _p1, p1_pos) = pawn_by_id(world, 1);
+        assert_eq!(p1_pos, TileId::new(1, 1));
+        let (_, _p2, p2_pos) = pawn_by_id(world, 2);
+        assert_eq!(p2_pos, TileId::new(0, 3));
 
         // Assert fixture position
-        let mut fq = world.query::<(&Fixture, &TileId)>();
-        let mut f_ok = false;
-        for (f, pos) in fq.iter(world) {
-            if f.id.0 == 5 {
-                assert_eq!(*pos, TileId::new(2, 2));
-                f_ok = true;
-            }
-        }
-        assert!(f_ok);
+        let (_, _f, fpos) = fixture_by_id(world, 5);
+        assert_eq!(fpos, TileId::new(2, 2));
     }
 }
