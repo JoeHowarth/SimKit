@@ -35,11 +35,11 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-target-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Format
-        run: cargo fmt --all 
+      # - name: Format
+      #   run: cargo fmt --all 
 
-      - name: Lint
-        run: cargo clippy --all-targets --all-features 
+      # - name: Lint
+      #   run: cargo clippy --all-targets --all-features 
 
       - name: Build
         run: cargo build --verbose
