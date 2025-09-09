@@ -72,20 +72,28 @@ pub fn step_jobs(
     mut item_tile_map_index: ResMut<TileMapIndex<ItemId>>,
     mut fixture_tile_index: ResMut<TileMapIndex<FixtureId>>,
 ) {
-    println!("\n--- step_jobs ---");
+    debug!("--- step_jobs ---");
+
+    let mut mark_job_complete = |job: &mut Job| {
+        info!("Marking job complete: {:?}", job.kind);
+        if let JobKind::Task(task_id, _) = job.kind {
+            completed_tasks.write(CompletedTask(task_id));
+        }
+        *job = Job {
+            kind: JobKind::None,
+            plan: VecDeque::new(),
+            current_toil: None,
+        };
+    };
+
     for (mut pawn, (mut tile, mut job)) in pawns.query.iter_mut() {
-        println!("Pawn: {:?}, Job: {:?}", pawn.id, job.kind);
+        debug!("Job: {:?}, Pawn: {:?}, Tile: {:?}", job.kind, pawn.id, tile);
         if job.current_toil.is_none() {
-            println!("Current toil is none");
+            debug!("Current toil is none");
             let Some(toil) = job.plan.pop_front() else {
                 // If the job is a task, complete it
-                if let JobKind::Task(task_id) = job.kind {
-                    completed_tasks.write(CompletedTask(task_id));
-                }
+                mark_job_complete(&mut job);
 
-                // Reset our job for scheduling the next job
-                job.kind = JobKind::None;
-                info!("No more toils to run for pawn {:?}", pawn.id);
                 continue;
             };
 
@@ -108,11 +116,15 @@ pub fn step_jobs(
         );
 
         if toil_result == ToilResult::Done {
-            println!("Toil done");
+            debug!("Toil done");
             job.current_toil = None;
+
+            if job.plan.is_empty() {
+                mark_job_complete(&mut job);
+            }
         }
 
-        println!("Toil result: {:?}", toil_result);
+        info!("Toil result: {:?}", toil_result);
     }
 }
 
@@ -127,7 +139,7 @@ pub fn step_toil(
     item_tile_map_index: &mut ResMut<TileMapIndex<ItemId>>,
     fixture_tile_index: &mut ResMut<TileMapIndex<FixtureId>>,
 ) -> ToilResult {
-    println!("step_toil: {:?}", toil);
+    debug!(?toil, "step_toil");
     match toil {
         ToilKind::ReserveItem { item: _ } => {
             // We will implement this later, noop for now
@@ -341,7 +353,7 @@ impl JobKind {
         match self {
             JobKind::Sleep => build_sleep_plan(pawn_tile, fixtures),
             JobKind::Eat => build_eat_plan(pawn, pawn_tile, items, fixtures),
-            JobKind::Task(task_id) => build_plan_for_task(
+            JobKind::Task(task_id, _) => build_plan_for_task(
                 tasks.tasks.get(task_id).unwrap(),
                 pawn,
                 pawn_tile,
@@ -651,12 +663,11 @@ mod tests {
             .add_task(TaskSpec::Harvest(FixtureId(2)));
 
         // Initial state before any updates
+        let pawn_id = PawnId(1);
+        let (_, e) = app.world().get_simid(&pawn_id);
+        let mut q = app.world_mut().query::<(&TileId, &Pawn, &Job)>();
         {
-            let world = app.world();
-            let pawn_id = PawnId(1);
-            let (pawn, _pawn_e, job) = world.get_comp_simid::<Job, _>(&pawn_id);
-            let (_pawn2, _e2, tile) =
-                world.get_comp_simid::<TileId, _>(&pawn_id);
+            let (tile, pawn, job) = q.get(app.world(), e).unwrap();
 
             assert_eq!(job.kind, JobKind::None);
             assert!(job.current_toil.is_none());
@@ -670,14 +681,10 @@ mod tests {
         // First update: scheduler assigns Harvest task and starts MoveTo
         app.update();
         {
-            let world = app.world();
-            let pawn_id = PawnId(1);
-            let (_pawn, _e, tile) = world.get_comp_simid::<TileId, _>(&pawn_id);
-            let (_pawn_ref, _pawn_e, job) =
-                world.get_comp_simid::<Job, _>(&pawn_id);
+            let (tile, _, job) = q.get(app.world(), e).unwrap();
 
             // Job assigned and plan created
-            assert_eq!(job.kind, JobKind::Task(task_id));
+            assert_eq!(job.kind, JobKind::Task(task_id, TaskSpecKind::Harvest));
 
             // Current toil should be MoveTo towards tile (2,2)
             match &job.current_toil {
@@ -705,11 +712,7 @@ mod tests {
         // Second update: continue MoveTo, one step remains
         app.update();
         {
-            let world = app.world();
-            let pawn_id = PawnId(1);
-            let (_pawn, _e, tile) = world.get_comp_simid::<TileId, _>(&pawn_id);
-            let (_pawn_ref, _pawn_e, job) =
-                world.get_comp_simid::<Job, _>(&pawn_id);
+            let (tile, _, job) = q.get(app.world(), e).unwrap();
 
             match &job.current_toil {
                 Some(ToilKind::MoveTo { target, path }) => {
@@ -726,11 +729,7 @@ mod tests {
         // Third update: finish MoveTo, next toil pending (Harvest at F2)
         app.update();
         {
-            let world = app.world();
-            let pawn_id = PawnId(1);
-            let (_pawn, _e, tile) = world.get_comp_simid::<TileId, _>(&pawn_id);
-            let (_pawn_ref, _pawn_e, job) =
-                world.get_comp_simid::<Job, _>(&pawn_id);
+            let (tile, _, job) = q.get(app.world(), e).unwrap();
 
             assert!(job.current_toil.is_none());
             assert_eq!(*tile, TileId::new(2, 2));
@@ -743,12 +742,11 @@ mod tests {
         app.update();
         {
             let world = app.world();
-            let pawn_id = PawnId(1);
-            let (pawn, _pawn_e, job) = world.get_comp_simid::<Job, _>(&pawn_id);
+            let (_, pawn, job) = q.get(world, e).unwrap();
 
             // Harvest finished this tick; job stays Task until next tick clears
             // it
-            assert_eq!(job.kind, JobKind::Task(task_id));
+            assert_eq!(job.kind, JobKind::Task(task_id, TaskSpecKind::Harvest));
             assert!(job.current_toil.is_none());
             assert!(job.plan.is_empty());
 
@@ -758,6 +756,285 @@ mod tests {
             // Fixture harvest cooldown reset
             let (fixture, _e) = world.get_simid(&FixtureId(2));
             assert_eq!(fixture.harvest_countdown, Some(100));
+        }
+    }
+
+    #[test_log::test]
+    fn test_harvest_then_plant() {
+        let def = ScenarioDef {
+            map: MapDef {
+                size: MapSize { x: 4, y: 4 },
+                tiles: vec![],
+                schematic: Some(
+                    "
+                    .  P1 .  .
+                    .  .  .  .
+                    .  .  .  .
+                    .  .  F2 .
+                "
+                    .to_owned(),
+                ),
+            },
+            sim_seed: Some(1),
+            pawns: vec![PawnDef {
+                id: Some(1),
+                name: Some("Sam".into()),
+                priorities: vec![TaskSpecKind::Plant, TaskSpecKind::Harvest],
+                sleep: Some(1),
+                hunger: Some(1),
+                ..Default::default()
+            }],
+            fixtures: vec![FixtureDef {
+                id: Some(2),
+                kind: "BerryBush".into(),
+                harvest_countdown: Some(0),
+                ..Default::default()
+            }],
+            tasks: vec![],
+        };
+
+        let mut app = app_with_scenario(def);
+        app.add_plugins(TaskPlugin { schedule: Update });
+        let harvest_task_id = app
+            .world_mut()
+            .resource_mut::<TaskBoard>()
+            .add_task(TaskSpec::Harvest(FixtureId(2)));
+        let plant_task_id = app
+            .world_mut()
+            .resource_mut::<TaskBoard>()
+            .add_task(TaskSpec::Plant(TileId::new(0, 1), ItemKind::Berry));
+
+        let pawn_id = PawnId(1);
+        let (_, e) = app.world().get_simid(&pawn_id);
+        let mut q = app.world_mut().query::<(&TileId, &Pawn, &Job)>();
+        {
+            let (_tile, _pawn, job) = q.get(app.world(), e).unwrap();
+            assert!(matches!(job.kind, JobKind::None));
+            assert!(job.current_toil.is_none());
+            assert!(job.plan.is_empty());
+        }
+
+        app.update();
+        {
+            let (_tile, _pawn, job) = q.get(app.world(), e).unwrap();
+            match job.kind {
+                JobKind::Task(id, TaskSpecKind::Harvest) => {
+                    assert_eq!(id, harvest_task_id);
+                }
+                other => {
+                    panic!("expected first task Harvest, got: {:?}", other)
+                }
+            }
+            match &job.current_toil {
+                Some(ToilKind::MoveTo { .. }) => {}
+                other => {
+                    panic!("expected MoveTo as first toil, got: {:?}", other)
+                }
+            }
+            match job.plan.front() {
+                Some(ToilKind::Harvest { .. }) => {}
+                other => {
+                    panic!("expected Harvest action queued, got: {:?}", other)
+                }
+            }
+        }
+
+        let mut reached_harvest_target = false;
+        for _ in 0..3 {
+            app.update();
+            let (_tile, _pawn, job) = q.get(app.world(), e).unwrap();
+            if job.current_toil.is_none() {
+                assert!(matches!(
+                    job.plan.front(),
+                    Some(ToilKind::Harvest { .. })
+                ));
+                reached_harvest_target = true;
+                break;
+            }
+        }
+        assert!(
+            reached_harvest_target,
+            "MoveTo for Harvest should finish within 3 updates"
+        );
+
+        app.update();
+        {
+            let (_tile, pawn, job) = q.get(app.world(), e).unwrap();
+            assert!(job.plan.is_empty());
+            assert!(matches!(job.kind, JobKind::None));
+            assert!(pawn.inventory.of_kind(ItemKind::Berry).next().is_some());
+
+            let (fixture, _fe) = app.world().get_simid(&FixtureId(2));
+            assert_eq!(fixture.harvest_countdown, Some(100));
+        }
+
+        app.update();
+        {
+            let (_tile, _pawn, job) = q.get(app.world(), e).unwrap();
+            match job.kind {
+                JobKind::Task(id, TaskSpecKind::Plant) => {
+                    assert_eq!(id, plant_task_id);
+                }
+                other => panic!("expected next task Plant, got: {:?}", other),
+            }
+            match &job.current_toil {
+                Some(ToilKind::MoveTo { .. }) => {}
+                other => {
+                    panic!("expected MoveTo before Plant, got: {:?}", other)
+                }
+            }
+            match job.plan.front() {
+                Some(ToilKind::Plant { .. }) => {}
+                other => {
+                    panic!("expected Plant action queued, got: {:?}", other)
+                }
+            }
+        }
+
+        let mut reached_plant_target = false;
+        for _ in 0..3 {
+            app.update();
+            let (_tile, _pawn, job) = q.get(app.world(), e).unwrap();
+            if job.current_toil.is_none() {
+                assert!(matches!(
+                    job.plan.front(),
+                    Some(ToilKind::Plant { .. })
+                ));
+                reached_plant_target = true;
+                break;
+            }
+        }
+        assert!(
+            reached_plant_target,
+            "MoveTo for Plant should finish within 3 updates"
+        );
+
+        app.update();
+        {
+            let (_tile, pawn, job) = q.get(app.world(), e).unwrap();
+            assert!(job.plan.is_empty());
+            assert!(matches!(job.kind, JobKind::None));
+            assert!(pawn.inventory.of_kind(ItemKind::Berry).next().is_none());
+
+            let fixture_index =
+                app.world().resource::<TileMapIndex<FixtureId>>();
+            assert!(fixture_index.get(TileId::new(0, 1)).is_some());
+        }
+
+        app.update();
+        app.update();
+        {
+            let (_tile, _pawn, job) = q.get(app.world(), e).unwrap();
+            assert!(matches!(job.kind, JobKind::None));
+            assert!(job.current_toil.is_none());
+            assert!(job.plan.is_empty());
+        }
+    }
+
+    #[test_log::test]
+    fn test_multi_harvest_and_plant() {
+        let def = ScenarioDef {
+            map: MapDef {
+                size: MapSize { x: 8, y: 8 },
+                tiles: vec![],
+                schematic: Some(
+                    "
+                    .  P1 .  .  .  .  .  .
+                    .  .  .  .  .  .  . .
+                    .  .  .  .  .  .  .  .
+                    .  .  .  .  F3  .  .  .
+                    .  .  .  .  .  .  .  .
+                    .  .  F2 .  .  .  F1  .
+                    .  .  .  .  F4  .  .  .
+                    .  .  .  .  .  .  .  .
+                "
+                    .to_owned(),
+                ),
+            },
+            sim_seed: Some(1),
+            pawns: vec![
+                PawnDef {
+                    id: Some(1),
+                    name: Some("Veronica".into()),
+                    priorities: vec![
+                        TaskSpecKind::Plant,
+                        TaskSpecKind::Harvest,
+                    ],
+                    sleep: Some(1),
+                    hunger: Some(1),
+                    ..Default::default()
+                },
+                // PawnDef {
+                //     id: Some(2),
+                //     name: Some("Sam".into()),
+                //     priorities: vec![
+                //         TaskSpecKind::Plant,
+                //         TaskSpecKind::Harvest,
+                //     ],
+                //     sleep: Some(1),
+                //     hunger: Some(1),
+                //     ..Default::default()
+                // },
+            ],
+            fixtures: vec![
+                FixtureDef {
+                    id: Some(1),
+                    kind: "BerryBush".into(),
+                    harvest_countdown: Some(0),
+                    ..Default::default()
+                },
+                FixtureDef {
+                    id: Some(2),
+                    kind: "BerryBush".into(),
+                    harvest_countdown: Some(0),
+                    ..Default::default()
+                },
+                FixtureDef {
+                    id: Some(3),
+                    kind: "BerryBush".into(),
+                    harvest_countdown: Some(2),
+                    ..Default::default()
+                },
+                FixtureDef {
+                    id: Some(4),
+                    kind: "BerryBush".into(),
+                    harvest_countdown: Some(0),
+                    ..Default::default()
+                },
+            ],
+            tasks: vec![],
+        };
+
+        let mut app = app_with_scenario(def);
+        app.add_plugins(TaskPlugin { schedule: Update });
+        let _ = app
+            .world_mut()
+            .resource_mut::<TaskBoard>()
+            .add_task(TaskSpec::Harvest(FixtureId(1)));
+        let _ = app
+            .world_mut()
+            .resource_mut::<TaskBoard>()
+            .add_task(TaskSpec::Harvest(FixtureId(2)));
+        let _ = app
+            .world_mut()
+            .resource_mut::<TaskBoard>()
+            .add_task(TaskSpec::Harvest(FixtureId(3)));
+        let _ = app
+            .world_mut()
+            .resource_mut::<TaskBoard>()
+            .add_task(TaskSpec::Harvest(FixtureId(4)));
+        let _ = app
+            .world_mut()
+            .resource_mut::<TaskBoard>()
+            .add_task(TaskSpec::Plant(TileId::new(0, 1), ItemKind::Berry));
+        let _ = app
+            .world_mut()
+            .resource_mut::<TaskBoard>()
+            .add_task(TaskSpec::Plant(TileId::new(3, 3), ItemKind::Berry));
+
+        for i in 0..33 {
+            warn!("Update {i}");
+            app.update();
         }
     }
 }

@@ -14,5 +14,6 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 ron = "0.11"
 toml = "0.8"
+test-log = { version = "0.2.18", features = ["trace"] }
 
 [dev-dependencies]

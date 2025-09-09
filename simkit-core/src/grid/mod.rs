@@ -33,7 +33,6 @@ impl GridConfig {
 
 /// Tile identifier using Bevy-style coordinates (x to the right, y up).
 #[derive(
-    Debug,
     Clone,
     Copy,
     PartialEq,
@@ -53,6 +52,12 @@ impl TileId {
     #[inline]
     pub const fn new(x: i32, y: i32) -> Self {
         Self { x, y }
+    }
+}
+
+impl std::fmt::Debug for TileId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "TileId({},{})", self.x, self.y)
     }
 }
 

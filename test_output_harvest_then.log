@@ -1,0 +1,136 @@
+warning: unused variable: `harvest_task_id`
+   --> stitchlands/src/toils.rs:798:13
+    |
+798 |         let harvest_task_id = app
+    |             ^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_harvest_task_id`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `plant_task_id`
+   --> stitchlands/src/toils.rs:802:13
+    |
+802 |         let plant_task_id = app
+    |             ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_plant_task_id`
+
+warning: unused variable: `tile`
+   --> stitchlands/src/toils.rs:811:18
+    |
+811 |             let (tile, pawn, job) = q.get(app.world(), e).unwrap();
+    |                  ^^^^ help: if this is intentional, prefix it with an underscore: `_tile`
+
+warning: unused variable: `pawn`
+   --> stitchlands/src/toils.rs:811:24
+    |
+811 |             let (tile, pawn, job) = q.get(app.world(), e).unwrap();
+    |                        ^^^^ help: if this is intentional, prefix it with an underscore: `_pawn`
+
+warning: unused variable: `job`
+   --> stitchlands/src/toils.rs:811:30
+    |
+811 |             let (tile, pawn, job) = q.get(app.world(), e).unwrap();
+    |                              ^^^ help: if this is intentional, prefix it with an underscore: `_job`
+
+warning: `stitchlands` (lib test) generated 5 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (target/debug/deps/stitchlands-d934a1b4e09ce969)
+
+running 1 test
+[2m2025-09-09T17:09:35.905637Z[0m [34mDEBUG[0m [2mbevy_app::app[0m[2m:[0m added plugin: bevy_app::main_schedule::MainSchedulePlugin    
+[2m2025-09-09T17:09:35.906096Z[0m [34mDEBUG[0m [2mbevy_app::app[0m[2m:[0m added plugin: stitchlands::tasks::TaskPlugin<bevy_app::main_schedule::Update>    
+[2m2025-09-09T17:09:35.906151Z[0m [33m WARN[0m [2mstitchlands::toils::tests[0m[2m:[0m === Update: 0 ===
+[2m2025-09-09T17:09:35.906216Z[0m [34mDEBUG[0m [2mstitchlands::tasks[0m[2m:[0m Choosing next job for Pawn: PawnId(1), Tile: TileId(1,0)
+[2m2025-09-09T17:09:35.906225Z[0m [34mDEBUG[0m [2mstitchlands::tasks[0m[2m:[0m Next job is not needs
+[2m2025-09-09T17:09:35.906230Z[0m [34mDEBUG[0m [2mstitchlands::tasks[0m[2m:[0m Next job is looking for kind: Plant
+[2m2025-09-09T17:09:35.906240Z[0m [34mDEBUG[0m [2mstitchlands::tasks[0m[2m:[0m Next job is looking for kind: Harvest
+[2m2025-09-09T17:09:35.906252Z[0m [32m INFO[0m [2mstitchlands::tasks[0m[2m:[0m Built plan for task Harvest(FixtureId(2)) (TaskId(1001)): [MoveTo { target: TileId(2,2), path: [TileId(2,0), TileId(2,1), TileId(2,2)] }, Harvest { fixture_id: FixtureId(2) }]
+[2m2025-09-09T17:09:35.906268Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m --- step_jobs ---
+[2m2025-09-09T17:09:35.906276Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m Job: Task(TaskId(1001), Harvest), Pawn: PawnId(1), Tile: Mut(TileId(1,0))
+[2m2025-09-09T17:09:35.906281Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m Current toil is none
+[2m2025-09-09T17:09:35.906285Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m step_toil [3mtoil[0m[2m=[0mMoveTo { target: TileId(2,2), path: [TileId(2,0), TileId(2,1), TileId(2,2)] }
+[2m2025-09-09T17:09:35.906291Z[0m [32m INFO[0m [2mstitchlands::toils[0m[2m:[0m Toil result: Running
+[2m2025-09-09T17:09:35.906302Z[0m [33m WARN[0m [2mstitchlands::toils::tests[0m[2m:[0m === Update: 1 ===
+[2m2025-09-09T17:09:35.906324Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m --- step_jobs ---
+[2m2025-09-09T17:09:35.906333Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m Job: Task(TaskId(1001), Harvest), Pawn: PawnId(1), Tile: Mut(TileId(2,0))
+[2m2025-09-09T17:09:35.906339Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m step_toil [3mtoil[0m[2m=[0mMoveTo { target: TileId(2,2), path: [TileId(2,1), TileId(2,2)] }
+[2m2025-09-09T17:09:35.906345Z[0m [32m INFO[0m [2mstitchlands::toils[0m[2m:[0m Toil result: Running
+[2m2025-09-09T17:09:35.906358Z[0m [33m WARN[0m [2mstitchlands::toils::tests[0m[2m:[0m === Update: 2 ===
+[2m2025-09-09T17:09:35.906390Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m --- step_jobs ---
+[2m2025-09-09T17:09:35.906395Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m Job: Task(TaskId(1001), Harvest), Pawn: PawnId(1), Tile: Mut(TileId(2,1))
+[2m2025-09-09T17:09:35.906399Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m step_toil [3mtoil[0m[2m=[0mMoveTo { target: TileId(2,2), path: [TileId(2,2)] }
+[2m2025-09-09T17:09:35.906403Z[0m [32m INFO[0m [2mstitchlands::toils[0m[2m:[0m Pawn PawnId(1) has reached the target tile TileId(2,2)
+[2m2025-09-09T17:09:35.906406Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m Toil done
+[2m2025-09-09T17:09:35.906409Z[0m [32m INFO[0m [2mstitchlands::toils[0m[2m:[0m Toil result: Done
+[2m2025-09-09T17:09:35.906417Z[0m [33m WARN[0m [2mstitchlands::toils::tests[0m[2m:[0m === Update: 3 ===
+[2m2025-09-09T17:09:35.906431Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m --- step_jobs ---
+[2m2025-09-09T17:09:35.906435Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m Job: Task(TaskId(1001), Harvest), Pawn: PawnId(1), Tile: Mut(TileId(2,2))
+[2m2025-09-09T17:09:35.906438Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m Current toil is none
+[2m2025-09-09T17:09:35.906441Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m step_toil [3mtoil[0m[2m=[0mHarvest { fixture_id: FixtureId(2) }
+[2m2025-09-09T17:09:35.906449Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m Toil done
+[2m2025-09-09T17:09:35.906453Z[0m [32m INFO[0m [2mstitchlands::toils[0m[2m:[0m Marking job complete: Task(TaskId(1001), Harvest)
+[2m2025-09-09T17:09:35.906456Z[0m [32m INFO[0m [2mstitchlands::toils[0m[2m:[0m Toil result: Done
+[2m2025-09-09T17:09:35.906475Z[0m [33m WARN[0m [2mstitchlands::toils::tests[0m[2m:[0m === Update: 4 ===
+[2m2025-09-09T17:09:35.906489Z[0m [34mDEBUG[0m [2mstitchlands::tasks[0m[2m:[0m Choosing next job for Pawn: PawnId(1), Tile: TileId(2,2)
+[2m2025-09-09T17:09:35.906493Z[0m [34mDEBUG[0m [2mstitchlands::tasks[0m[2m:[0m Next job is not needs
+[2m2025-09-09T17:09:35.906496Z[0m [34mDEBUG[0m [2mstitchlands::tasks[0m[2m:[0m Next job is looking for kind: Plant
+[2m2025-09-09T17:09:35.906504Z[0m [32m INFO[0m [2mstitchlands::tasks[0m[2m:[0m Built plan for task Plant(TileId(0,1), Berry) (TaskId(1002)): [MoveTo { target: TileId(0,1), path: [TileId(1,2), TileId(0,2), TileId(0,1)] }, Plant { seed_id: ItemId(1001), tile_id: TileId(0,1) }]
+[2m2025-09-09T17:09:35.906517Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m --- step_jobs ---
+[2m2025-09-09T17:09:35.906521Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m Job: Task(TaskId(1002), Plant), Pawn: PawnId(1), Tile: Mut(TileId(2,2))
+[2m2025-09-09T17:09:35.906524Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m Current toil is none
+[2m2025-09-09T17:09:35.906526Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m step_toil [3mtoil[0m[2m=[0mMoveTo { target: TileId(0,1), path: [TileId(1,2), TileId(0,2), TileId(0,1)] }
+[2m2025-09-09T17:09:35.906530Z[0m [32m INFO[0m [2mstitchlands::toils[0m[2m:[0m Toil result: Running
+[2m2025-09-09T17:09:35.906538Z[0m [33m WARN[0m [2mstitchlands::toils::tests[0m[2m:[0m === Update: 5 ===
+[2m2025-09-09T17:09:35.906550Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m --- step_jobs ---
+[2m2025-09-09T17:09:35.906554Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m Job: Task(TaskId(1002), Plant), Pawn: PawnId(1), Tile: Mut(TileId(1,2))
+[2m2025-09-09T17:09:35.906557Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m step_toil [3mtoil[0m[2m=[0mMoveTo { target: TileId(0,1), path: [TileId(0,2), TileId(0,1)] }
+[2m2025-09-09T17:09:35.906561Z[0m [32m INFO[0m [2mstitchlands::toils[0m[2m:[0m Toil result: Running
+[2m2025-09-09T17:09:35.906567Z[0m [33m WARN[0m [2mstitchlands::toils::tests[0m[2m:[0m === Update: 6 ===
+[2m2025-09-09T17:09:35.906579Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m --- step_jobs ---
+[2m2025-09-09T17:09:35.906588Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m Job: Task(TaskId(1002), Plant), Pawn: PawnId(1), Tile: Mut(TileId(0,2))
+[2m2025-09-09T17:09:35.906591Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m step_toil [3mtoil[0m[2m=[0mMoveTo { target: TileId(0,1), path: [TileId(0,1)] }
+[2m2025-09-09T17:09:35.906593Z[0m [32m INFO[0m [2mstitchlands::toils[0m[2m:[0m Pawn PawnId(1) has reached the target tile TileId(0,1)
+[2m2025-09-09T17:09:35.906595Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m Toil done
+[2m2025-09-09T17:09:35.906597Z[0m [32m INFO[0m [2mstitchlands::toils[0m[2m:[0m Toil result: Done
+[2m2025-09-09T17:09:35.906603Z[0m [33m WARN[0m [2mstitchlands::toils::tests[0m[2m:[0m === Update: 7 ===
+[2m2025-09-09T17:09:35.906614Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m --- step_jobs ---
+[2m2025-09-09T17:09:35.906618Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m Job: Task(TaskId(1002), Plant), Pawn: PawnId(1), Tile: Mut(TileId(0,1))
+[2m2025-09-09T17:09:35.906621Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m Current toil is none
+[2m2025-09-09T17:09:35.906624Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m step_toil [3mtoil[0m[2m=[0mPlant { seed_id: ItemId(1001), tile_id: TileId(0,1) }
+[2m2025-09-09T17:09:35.906632Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m Toil done
+[2m2025-09-09T17:09:35.906635Z[0m [32m INFO[0m [2mstitchlands::toils[0m[2m:[0m Marking job complete: Task(TaskId(1002), Plant)
+[2m2025-09-09T17:09:35.906637Z[0m [32m INFO[0m [2mstitchlands::toils[0m[2m:[0m Toil result: Done
+[2m2025-09-09T17:09:35.906652Z[0m [33m WARN[0m [2mstitchlands::toils::tests[0m[2m:[0m === Update: 8 ===
+[2m2025-09-09T17:09:35.906662Z[0m [34mDEBUG[0m [2mstitchlands::tasks[0m[2m:[0m Choosing next job for Pawn: PawnId(1), Tile: TileId(0,1)
+[2m2025-09-09T17:09:35.906666Z[0m [34mDEBUG[0m [2mstitchlands::tasks[0m[2m:[0m Next job is not needs
+[2m2025-09-09T17:09:35.906669Z[0m [34mDEBUG[0m [2mstitchlands::tasks[0m[2m:[0m Next job is looking for kind: Plant
+[2m2025-09-09T17:09:35.906672Z[0m [34mDEBUG[0m [2mstitchlands::tasks[0m[2m:[0m Next job is looking for kind: Harvest
+[2m2025-09-09T17:09:35.906676Z[0m [32m INFO[0m [2mstitchlands::tasks[0m[2m:[0m No job found for pawn PawnId(1)
+[2m2025-09-09T17:09:35.906682Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m --- step_jobs ---
+[2m2025-09-09T17:09:35.906685Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m Job: None, Pawn: PawnId(1), Tile: Mut(TileId(0,1))
+[2m2025-09-09T17:09:35.906688Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m Current toil is none
+[2m2025-09-09T17:09:35.906690Z[0m [32m INFO[0m [2mstitchlands::toils[0m[2m:[0m Marking job complete: None
+[2m2025-09-09T17:09:35.906699Z[0m [33m WARN[0m [2mstitchlands::toils::tests[0m[2m:[0m === Update: 9 ===
+[2m2025-09-09T17:09:35.906708Z[0m [34mDEBUG[0m [2mstitchlands::tasks[0m[2m:[0m Choosing next job for Pawn: PawnId(1), Tile: TileId(0,1)
+[2m2025-09-09T17:09:35.906711Z[0m [34mDEBUG[0m [2mstitchlands::tasks[0m[2m:[0m Next job is not needs
+[2m2025-09-09T17:09:35.906714Z[0m [34mDEBUG[0m [2mstitchlands::tasks[0m[2m:[0m Next job is looking for kind: Plant
+[2m2025-09-09T17:09:35.906717Z[0m [34mDEBUG[0m [2mstitchlands::tasks[0m[2m:[0m Next job is looking for kind: Harvest
+[2m2025-09-09T17:09:35.906720Z[0m [32m INFO[0m [2mstitchlands::tasks[0m[2m:[0m No job found for pawn PawnId(1)
+[2m2025-09-09T17:09:35.906724Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m --- step_jobs ---
+[2m2025-09-09T17:09:35.906727Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m Job: None, Pawn: PawnId(1), Tile: Mut(TileId(0,1))
+[2m2025-09-09T17:09:35.906730Z[0m [34mDEBUG[0m [2mstitchlands::toils[0m[2m:[0m Current toil is none
+[2m2025-09-09T17:09:35.906733Z[0m [32m INFO[0m [2mstitchlands::toils[0m[2m:[0m Marking job complete: None
+test toils::tests::test_harvest_then_plant ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 15 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/stitchlands-1868d93c35879668)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/scenario_invariants.rs (target/debug/deps/scenario_invariants-c4d966dd578a2392)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+

@@ -64,13 +64,14 @@ impl TaskSpec {
     }
 }
 
+#[derive(Debug)]
 pub enum TaskSpec {
     Harvest(FixtureId),
     Plant(TileId, ItemKind),
 }
 
 // TODO: should this be a component?
-#[derive(Component)]
+#[derive(Component, Debug)]
 pub struct Task {
     pub id: TaskId,
     pub spec: TaskSpec,
@@ -91,7 +92,7 @@ pub struct Job {
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
 pub enum JobKind {
-    Task(TaskId),
+    Task(TaskId, TaskSpecKind),
     Sleep,
     Eat,
     #[default]
@@ -182,22 +183,20 @@ fn schedule_pawns(
     items: ItemQuery<&ItemRelation>,
     fixture_tile_index: Res<TileMapIndex<FixtureId>>,
 ) {
-    dbg!("schedule_pawns");
+    trace!("Begin schedule_pawns");
     // TODO: use a stable ordering of pawns
     let mut pawns = pawns.iter_mut().collect::<Vec<_>>();
     pawns.sort_by_key(|(pawn, _, _, _)| pawn.id.to_u64());
 
     for (pawn, pos, work_priority, mut job) in pawns {
-        println!("Pawn: {:?}, Job: {:?}", pawn.id, job.kind);
-
         // If job is running, check if it should be preempted
         if job.kind != JobKind::None {
             if let Some(preempt) = should_preempt(pawn, job.kind) {
-                println!("Preempting job: {:?}", job);
+                debug!("Preempting job: {:?}", job);
 
                 // If job should be preempted and it's not the same job,
                 // => preempt it
-                if let JobKind::Task(task_id) = &job.kind {
+                if let JobKind::Task(task_id, _) = &job.kind {
                     task_board.return_to_pending(*task_id);
                 }
 
@@ -214,10 +213,7 @@ fn schedule_pawns(
                         error!("Failed to build plan for preempted job: {}", e)
                     })
                 else {
-                    println!(
-                        "Failed to build plan for preempted job: {:?}",
-                        job
-                    );
+                    warn!("Failed to build plan for preempted job: {:?}", job);
                     continue;
                 };
 
@@ -226,11 +222,13 @@ fn schedule_pawns(
                     plan,
                     current_toil: None,
                 };
-                println!("Preempted job: {:?}", job);
+                debug!("Preempted job: {:?}", job);
             }
             continue;
         }
 
+
+        debug!("Choosing next job for Pawn: {:?}, Tile: {:?}", pawn.id, pos);
         // If no job is running, choose a new job
         let next_job = choose_next_job(
             &task_board,
@@ -243,7 +241,7 @@ fn schedule_pawns(
         );
 
         // If the job is a task, set the task to assigned
-        if let JobKind::Task(task_id) = &next_job.kind {
+        if let JobKind::Task(task_id, _) = &next_job.kind {
             task_board.set_assigned(*task_id, pawn.id);
         }
 
@@ -337,14 +335,14 @@ fn choose_next_job(
 ) -> Job {
     // Check if needs are urgent
     if let Some(job) = next_job_is_needs(pawn, pos, fixtures, items) {
-        println!("Next job is needs: {:?}", job);
+        debug!("Next job is needs: {:?}", job);
         return job;
     }
 
-    println!("Next job is not needs");
+    debug!("Next job is not needs");
 
     for kind in work_priority.0.iter() {
-        println!("Next job is looking for kind: {:?}", kind);
+        debug!("Next job is looking for kind: {:?}", kind);
 
         // Find highest priority task for this kind
         let mut tasks = pending
@@ -369,8 +367,11 @@ fn choose_next_job(
                 fixture_tile_index,
             ) {
                 Ok(plan) => {
-                    let kind = JobKind::Task(task.id);
-                    info!("Built plan for task {:?}: {:?}", task.id, plan);
+                    let kind = JobKind::Task(task.id, task.spec.kind());
+                    info!(
+                        "Built plan for task {:?} ({:?}): {:?}",
+                        task.spec, task.id, plan
+                    );
                     return Job {
                         kind,
                         plan,
