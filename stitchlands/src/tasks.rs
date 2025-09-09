@@ -44,7 +44,7 @@ impl<S: ScheduleLabel + Clone> Plugin for TaskPlugin<S> {
             .add_event::<CompletedTask>()
             .add_systems(
                 self.schedule.clone(),
-                (schedule_pawns, step_jobs).chain(),
+                (schedule_pawns, step_jobs, mark_tasks_as_done).chain(),
             );
     }
 }
@@ -64,14 +64,14 @@ impl TaskSpec {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TaskSpec {
     Harvest(FixtureId),
     Plant(TileId, ItemKind),
 }
 
 // TODO: should this be a component?
-#[derive(Component, Debug)]
+#[derive(Component, Debug, Clone, PartialEq, Eq)]
 pub struct Task {
     pub id: TaskId,
     pub spec: TaskSpec,
@@ -107,7 +107,7 @@ pub enum TaskStatus {
     Cancelled,
 }
 
-#[derive(Resource)]
+#[derive(Resource, Debug)]
 pub struct TaskBoard {
     pub index: IdIndex<TaskId>,
     pub tasks: HashMap<TaskId, Task>,
@@ -174,6 +174,26 @@ impl TaskBoard {
             .iter()
             .map(|id| self.tasks.get(id).unwrap())
     }
+
+    pub fn tasks_by_status(
+        &self,
+        status: TaskStatus,
+    ) -> impl Iterator<Item = &Task> {
+        self.tasks
+            .values()
+            .filter(move |task| task.status == status)
+    }
+}
+
+fn mark_tasks_as_done(
+    mut task_board: ResMut<TaskBoard>,
+    mut completed_tasks: EventReader<CompletedTask>,
+) {
+    for completed_task in completed_tasks.read() {
+        info!("Marking task as done: {:?}", completed_task.0);
+        let task = task_board.tasks.get_mut(&completed_task.0).unwrap();
+        task.status = TaskStatus::Done;
+    }
 }
 
 fn schedule_pawns(
@@ -192,15 +212,10 @@ fn schedule_pawns(
         // If job is running, check if it should be preempted
         if job.kind != JobKind::None {
             if let Some(preempt) = should_preempt(pawn, job.kind) {
-                debug!("Preempting job: {:?}", job);
+                debug!("Considering preemption: current={:?}, new={:?}", job.kind, preempt);
 
-                // If job should be preempted and it's not the same job,
-                // => preempt it
-                if let JobKind::Task(task_id, _) = &job.kind {
-                    task_board.return_to_pending(*task_id);
-                }
-
-                let Ok(plan) = preempt
+                // Build the preempt plan first; only switch if planning succeeds
+                match preempt
                     .build_plan(
                         pawn,
                         pos,
@@ -209,24 +224,31 @@ fn schedule_pawns(
                         &fixtures,
                         &fixture_tile_index,
                     )
-                    .inspect_err(|e| {
-                        error!("Failed to build plan for preempted job: {}", e)
-                    })
-                else {
-                    warn!("Failed to build plan for preempted job: {:?}", job);
-                    continue;
-                };
+                    .inspect_err(|e| error!("Failed to build preempt plan: {}", e))
+                {
+                    Ok(plan) => {
+                        // Return the current task to pending after we know the new plan is viable
+                        if let JobKind::Task(task_id, _) = &job.kind {
+                            task_board.return_to_pending(*task_id);
+                        }
 
-                *job = Job {
-                    kind: preempt,
-                    plan,
-                    current_toil: None,
-                };
-                debug!("Preempted job: {:?}", job);
+                        *job = Job {
+                            kind: preempt,
+                            plan,
+                            current_toil: None,
+                        };
+                        debug!("Preempted job: {:?}", job);
+                    }
+                    Err(_) => {
+                        warn!(
+                            "Preemption planning failed; keeping current job: {:?}",
+                            job.kind
+                        );
+                    }
+                }
             }
             continue;
         }
-
 
         debug!("Choosing next job for Pawn: {:?}, Tile: {:?}", pawn.id, pos);
         // If no job is running, choose a new job
@@ -268,7 +290,7 @@ fn should_preempt(pawn: &Pawn, current_job: JobKind) -> Option<JobKind> {
         return None;
     }
 
-    // Premption is in a stable order, so it will not thrash
+    // Preemption is in a stable order, so it will not thrash
     if pawn.eat_priority() > Q40p24::from(0.8) {
         return Some(JobKind::Eat);
     }

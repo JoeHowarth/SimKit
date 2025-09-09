@@ -317,6 +317,14 @@ pub fn step_toil(
 
             commands.entity(items.entity(item_id)).despawn();
 
+            // Reduce hunger (increase hunger stat toward full) with a fixed nutrition value
+            let nutrition = Q40p24::from(0.4);
+            pawn.hunger = if pawn.hunger + nutrition > Q40p24::ONE {
+                Q40p24::ONE
+            } else {
+                pawn.hunger + nutrition
+            };
+
             ToilResult::Done
         }
         ToilKind::Sleep { fixture_id } => {
@@ -388,14 +396,24 @@ pub fn build_plan_for_task(
                 ));
             }
 
+            let dist = manhattan(*pawn_tile, *fixture_tile);
+            // If already adjacent, no need to move
+            if dist <= 1 {
+                return Ok(VecDeque::from_iter([ToilKind::Harvest {
+                    fixture_id: *fixture_id,
+                }]));
+            }
+
+            // Otherwise, move to the last tile before the fixture
             let mut path = manhattan_path(*pawn_tile, *fixture_tile);
             // Don't move into the fixture
             path.pop_back();
+            let target = *path
+                .back()
+                .expect("path must be non-empty when distance > 1");
+
             Ok(VecDeque::from_iter([
-                ToilKind::MoveTo {
-                    target: *path.back().unwrap(),
-                    path,
-                },
+                ToilKind::MoveTo { target, path },
                 ToilKind::Harvest {
                     fixture_id: *fixture_id,
                 },
@@ -599,7 +617,7 @@ mod tests {
             model::{FixtureDef, MapDef, MapSize, PawnDef, ScenarioDef},
             testutil::app_with_scenario,
         },
-        tasks::{TaskPlugin, TaskSpecKind},
+        tasks::{TaskPlugin, TaskSpecKind, TaskStatus},
     };
 
     #[test]
@@ -1044,30 +1062,17 @@ mod tests {
 
         let mut app = app_with_scenario(def);
         app.add_plugins(TaskPlugin { schedule: Update });
-        let _ = app
-            .world_mut()
-            .resource_mut::<TaskBoard>()
-            .add_task(TaskSpec::Harvest(FixtureId(1)));
-        let _ = app
-            .world_mut()
-            .resource_mut::<TaskBoard>()
-            .add_task(TaskSpec::Harvest(FixtureId(2)));
-        let _ = app
-            .world_mut()
-            .resource_mut::<TaskBoard>()
-            .add_task(TaskSpec::Harvest(FixtureId(3)));
-        let _ = app
-            .world_mut()
-            .resource_mut::<TaskBoard>()
-            .add_task(TaskSpec::Harvest(FixtureId(4)));
-        let _ = app
-            .world_mut()
-            .resource_mut::<TaskBoard>()
-            .add_task(TaskSpec::Plant(TileId::new(0, 1), ItemKind::Berry));
-        let _ = app
-            .world_mut()
-            .resource_mut::<TaskBoard>()
-            .add_task(TaskSpec::Plant(TileId::new(3, 3), ItemKind::Berry));
+        let mut task_board = app.world_mut().resource_mut::<TaskBoard>();
+        let task_ids = [
+            task_board.add_task(TaskSpec::Harvest(FixtureId(1))),
+            task_board.add_task(TaskSpec::Harvest(FixtureId(2))),
+            task_board.add_task(TaskSpec::Harvest(FixtureId(3))),
+            task_board.add_task(TaskSpec::Harvest(FixtureId(4))),
+            task_board
+                .add_task(TaskSpec::Plant(TileId::new(0, 1), ItemKind::Berry)),
+            task_board
+                .add_task(TaskSpec::Plant(TileId::new(3, 3), ItemKind::Berry)),
+        ];
 
         // Helper functions (high-level, reduce boilerplate)
         use bevy::prelude::QueryState;
@@ -1259,5 +1264,157 @@ mod tests {
             assert!(job.current_toil.is_none());
             assert!(job.plan.is_empty());
         }
+
+        let task_board = app.world().resource::<TaskBoard>();
+        // info!("task_board: {:#?}", task_board);
+        assert_eq!(task_board.tasks.len(), 6);
+        assert_eq!(task_board.tasks_by_status(TaskStatus::Pending).count(), 1);
+        assert_eq!(task_board.tasks_by_status(TaskStatus::Done).count(), 5);
+        assert_eq!(
+            task_board
+                .tasks_by_status(TaskStatus::Assigned(PawnId(1)))
+                .count(),
+            0
+        );
+        assert_eq!(
+            task_board.tasks.get(&task_ids[0]).unwrap().spec,
+            TaskSpec::Harvest(FixtureId(1))
+        );
+        assert_eq!(
+            task_board.tasks.get(&task_ids[1]).unwrap().spec,
+            TaskSpec::Harvest(FixtureId(2))
+        );
+        assert_eq!(
+            task_board.tasks.get(&task_ids[2]).unwrap().status,
+            TaskStatus::Pending
+        );
+        assert_eq!(
+            *task_board.tasks.get(&task_ids[3]).unwrap(),
+            Task {
+                id: task_ids[3],
+                spec: TaskSpec::Harvest(FixtureId(4)),
+                status: TaskStatus::Done,
+            }
+        );
+    }
+
+    #[test_log::test]
+    fn test_two_pawns() {
+        let def = ScenarioDef {
+            map: MapDef {
+                size: MapSize { x: 8, y: 8 },
+                tiles: vec![],
+                schematic: Some(
+                    "
+                    .  P1 .  .  .  .  .  .
+                    .  .  .  .  .  .  . .
+                    .  .  .  .  .  .  .  .
+                    .  .  .  .  F3  .  .  .
+                    .  .  .  .  .  .  .  .
+                    .  .  F2 .  .  .  F1  .
+                    .  .  .  .  F4  .  .  .
+                    .  .  .  .  .  .  P2 .
+                "
+                    .to_owned(),
+                ),
+            },
+            sim_seed: Some(1),
+            pawns: vec![
+                PawnDef {
+                    id: Some(1),
+                    name: Some("Veronica".into()),
+                    priorities: vec![
+                        TaskSpecKind::Plant,
+                        TaskSpecKind::Harvest,
+                    ],
+                    sleep: Some(1),
+                    hunger: Some(1),
+                    ..Default::default()
+                },
+                PawnDef {
+                    id: Some(2),
+                    name: Some("Sam".into()),
+                    priorities: vec![
+                        TaskSpecKind::Plant,
+                        TaskSpecKind::Harvest,
+                    ],
+                    sleep: Some(1),
+                    hunger: Some(1),
+                    ..Default::default()
+                },
+            ],
+            fixtures: vec![
+                FixtureDef {
+                    id: Some(1),
+                    kind: "BerryBush".into(),
+                    harvest_countdown: Some(0),
+                    ..Default::default()
+                },
+                FixtureDef {
+                    id: Some(2),
+                    kind: "BerryBush".into(),
+                    harvest_countdown: Some(0),
+                    ..Default::default()
+                },
+                FixtureDef {
+                    id: Some(3),
+                    kind: "BerryBush".into(),
+                    harvest_countdown: Some(2),
+                    ..Default::default()
+                },
+                FixtureDef {
+                    id: Some(4),
+                    kind: "BerryBush".into(),
+                    harvest_countdown: Some(0),
+                    ..Default::default()
+                },
+            ],
+            tasks: vec![],
+        };
+
+        let mut app = app_with_scenario(def);
+        app.add_plugins(TaskPlugin { schedule: Update });
+        let mut task_board = app.world_mut().resource_mut::<TaskBoard>();
+        let task_ids = [
+            task_board.add_task(TaskSpec::Harvest(FixtureId(1))),
+            task_board.add_task(TaskSpec::Harvest(FixtureId(2))),
+            task_board.add_task(TaskSpec::Harvest(FixtureId(3))),
+            task_board.add_task(TaskSpec::Harvest(FixtureId(4))),
+            task_board
+                .add_task(TaskSpec::Plant(TileId::new(0, 1), ItemKind::Berry)),
+            task_board
+                .add_task(TaskSpec::Plant(TileId::new(3, 3), ItemKind::Berry)),
+        ];
+        for i in 0..20 {
+            warn!("Update {i}");
+            app.update();
+        }
+
+        let task_board = app.world().resource::<TaskBoard>();
+        // info!("task_board: {:#?}", task_board);
+        assert_eq!(task_board.tasks.len(), 6);
+        assert_eq!(task_board.tasks_by_status(TaskStatus::Pending).count(), 1);
+        assert_eq!(task_board.tasks_by_status(TaskStatus::Done).count(), 5);
+        assert_eq!(
+            task_board
+                .tasks_by_status(TaskStatus::Assigned(PawnId(2)))
+                .count(),
+            0
+        );
+        assert_eq!(
+            task_board
+                .tasks_by_status(TaskStatus::Assigned(PawnId(1)))
+                .count(),
+            0
+        );
+        assert_eq!(
+            task_board.tasks.get(&task_ids[2]).unwrap().status,
+            TaskStatus::Pending
+        );
+
+        let pawn = app.world().get_simid(&PawnId(1)).0;
+        assert_eq!(pawn.inventory.of_kind(ItemKind::Berry).count(), 0);
+        let pawn = app.world().get_simid(&PawnId(2)).0;
+        assert_eq!(pawn.inventory.of_kind(ItemKind::Berry).count(), 1);
     }
 }
