@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
-use simkit_core::{grid::TileId, ids::IdIndex, Playback};
+use simkit_core::{grid::TileId, ids::IdIndex, Tick};
 
 use crate::model::{components::*, ids::*};
 
@@ -54,7 +54,7 @@ pub struct WorldSnapshot {
 }
 
 pub fn build_world_snapshot(
-    playback: &Playback,
+    tick: &Tick,
     scenario_seed: Option<u64>,
     pawns: &[(Pawn, TileId)],
     items: &[(Item, TileId)],
@@ -62,7 +62,7 @@ pub fn build_world_snapshot(
     tasks: &[TaskId],
 ) -> WorldSnapshot {
     let mut snap = WorldSnapshot {
-        tick: playback.tick.0,
+        tick: tick.0,
         scenario_seed,
         // pawns
         pawns: pawns

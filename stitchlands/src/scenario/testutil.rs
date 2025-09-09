@@ -1,15 +1,18 @@
 use std::{fs, path::Path};
 
-use bevy::prelude::*;
+use bevy::{ecs::system::RunSystemOnce, prelude::*};
 use simkit_core::{grid::TileId, ids::IdIndex};
 
 use super::{load_scenario_from_def, model::ScenarioDef};
 use crate::{
+    environment_step::EnvironmentStepPlugin,
     model::{
         components::{Fixture, Pawn},
         ids::{FixtureId, ItemId, PawnId, TaskId},
     },
+    tasks::TaskPlugin,
     RngResource,
+    StepSystemLabel,
 };
 
 #[derive(Resource)]
@@ -39,15 +42,22 @@ fn sys_load_from_def(
 /// Build an App, load the given ScenarioDef, run Startup, and return the App.
 pub fn app_with_scenario(def: ScenarioDef) -> App {
     let mut app = App::new();
+    simkit_core::configure_sets(&mut app, StepSystemLabel::default(), false);
     app.init_resource::<RngResource>()
         .init_resource::<IdIndex<PawnId>>()
         .init_resource::<IdIndex<ItemId>>()
         .init_resource::<IdIndex<FixtureId>>()
         .init_resource::<IdIndex<TaskId>>()
         .insert_resource(TestScenario(def))
-        .add_systems(Startup, sys_load_from_def);
-    // Run Startup systems to materialize the world
-    app.update();
+        .add_plugins(TaskPlugin)
+        .add_plugins(EnvironmentStepPlugin);
+
+    {
+        let world = app.world_mut();
+        world.run_system_once(sys_load_from_def).unwrap();
+        world.flush();
+    }
+
     app
 }
 

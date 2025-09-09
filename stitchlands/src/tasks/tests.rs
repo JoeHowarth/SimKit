@@ -1,3 +1,5 @@
+use simkit_core::fixed_point::Q40p24;
+
 use super::*;
 use crate::{
     model::queries::WorldExt,
@@ -5,12 +7,7 @@ use crate::{
         model::{FixtureDef, MapDef, MapSize, PawnDef, ScenarioDef},
         testutil::app_with_scenario,
     },
-    tasks::{
-        job_planning::manhattan_path,
-        TaskPlugin,
-        TaskSpecKind,
-        TaskStatus,
-    },
+    tasks::{job_planning::manhattan_path, TaskSpecKind, TaskStatus},
 };
 
 #[test]
@@ -53,8 +50,8 @@ fn test_build_plan_for_task() {
             id: Some(1),
             name: Some("Sam".into()),
             priorities: vec![TaskSpecKind::Harvest, TaskSpecKind::Plant],
-            sleep: Some(1),
-            hunger: Some(1),
+            sleep: Some(100),
+            hunger: Some(100),
             ..Default::default()
         }],
         fixtures: vec![FixtureDef {
@@ -67,7 +64,6 @@ fn test_build_plan_for_task() {
     };
 
     let mut app = app_with_scenario(def);
-    app.add_plugins(TaskPlugin { schedule: Update });
     let task_id = app
         .world_mut()
         .resource_mut::<TaskBoard>()
@@ -190,8 +186,6 @@ fn test_harvest_then_plant() {
             id: Some(1),
             name: Some("Sam".into()),
             priorities: vec![TaskSpecKind::Plant, TaskSpecKind::Harvest],
-            sleep: Some(1),
-            hunger: Some(1),
             ..Default::default()
         }],
         fixtures: vec![FixtureDef {
@@ -204,7 +198,6 @@ fn test_harvest_then_plant() {
     };
 
     let mut app = app_with_scenario(def);
-    app.add_plugins(TaskPlugin { schedule: Update });
     let harvest_task_id = app
         .world_mut()
         .resource_mut::<TaskBoard>()
@@ -343,6 +336,7 @@ pub fn has_fixture_at(app: &App, pos: TileId) -> bool {
         .get(pos)
         .is_some()
 }
+
 pub fn step_until<F: FnMut(&mut App) -> bool>(
     app: &mut App,
     mut pred: F,
@@ -383,10 +377,10 @@ fn test_multi_harvest_and_plant() {
                     .  P1 .  .  .  .  .  .
                     .  .  .  .  .  .  . .
                     .  .  .  .  .  .  .  .
-                    .  .  .  .  F3  .  .  .
+                    .  .  .  .  .  F3 .  .
                     .  .  .  .  .  .  .  .
-                    .  .  F2 .  .  .  F1  .
-                    .  .  .  .  F4  .  .  .
+                    .  .  F2 .  .  .  F1 .
+                    .  .  .  .  F4 .  .  .
                     .  .  .  .  .  .  .  .
                 "
                 .to_owned(),
@@ -398,8 +392,6 @@ fn test_multi_harvest_and_plant() {
                 id: Some(1),
                 name: Some("Veronica".into()),
                 priorities: vec![TaskSpecKind::Plant, TaskSpecKind::Harvest],
-                sleep: Some(1),
-                hunger: Some(1),
                 ..Default::default()
             },
             // PawnDef {
@@ -444,7 +436,6 @@ fn test_multi_harvest_and_plant() {
     };
 
     let mut app = app_with_scenario(def);
-    app.add_plugins(TaskPlugin { schedule: Update });
     let mut task_board = app.world_mut().resource_mut::<TaskBoard>();
     let task_ids = [
         task_board.add_task(TaskSpec::Harvest(FixtureId(1))),
@@ -555,14 +546,11 @@ fn test_multi_harvest_and_plant() {
             _ => panic!("expected Harvest after Plant"),
         };
         match (&job.current_toil, job.plan.front()) {
-            (
-                Some(ToilKind::MoveTo { .. }),
-                Some(ToilKind::Harvest { fixture_id }),
-            ) => {
+            (None, Some(ToilKind::Harvest { fixture_id })) => {
                 assert_eq!(
                     *fixture_id,
-                    FixtureId(4),
-                    "expected F4 as next nearest Harvest"
+                    FixtureId(3),
+                    "expected F3 as next nearest Harvest"
                 );
             }
             other => panic!("expected MoveTo then Harvest, got {other:?}"),
@@ -617,8 +605,8 @@ fn test_multi_harvest_and_plant() {
             ) => {
                 assert_eq!(
                     *fixture_id,
-                    FixtureId(1),
-                    "expected F1 as remaining ready Harvest"
+                    FixtureId(4),
+                    "expected F4 as remaining ready Harvest"
                 );
             }
             other => panic!("expected MoveTo then Harvest, got {other:?}"),
@@ -635,24 +623,31 @@ fn test_multi_harvest_and_plant() {
     app.update();
     assert_eq!(fixture_cd(&app, last_harvest), Some(100));
 
-    // 6) Eventually F3 should become ready and be harvested.
+    // 6) Eventually F1 should become ready and be harvested.
     // Note: Current behavior lacks countdown ticking; this will fail until
-    // it's implemented. step_until(&mut app, |app| fixture_cd(app,
-    // FixtureId(3)) == Some(100), 33);
+    // it's implemented.
+    step_until(
+        &mut app,
+        |app| fixture_cd(app, FixtureId(1)) == Some(100),
+        33,
+    );
 
     // End: pawn idle
     {
-        let (_tile, _pawn, job) = q.get(app.world(), e).unwrap();
+        let (_tile, pawn, job) = q.get(app.world(), e).unwrap();
         assert!(matches!(job.kind, JobKind::None));
         assert!(job.current_toil.is_none());
         assert!(job.plan.is_empty());
+        assert_eq!(pawn.inventory.of_kind(ItemKind::Berry).count(), 1);
+        assert!(pawn.hunger > Q40p24::from(95), "hunger: {:?}", pawn.hunger);
+        assert!(pawn.sleep > Q40p24::from(60), "sleep: {:?}", pawn.sleep);
     }
 
     let task_board = app.world().resource::<TaskBoard>();
     // info!("task_board: {:#?}", task_board);
     assert_eq!(task_board.tasks.len(), 6);
-    assert_eq!(task_board.tasks_by_status(TaskStatus::Pending).count(), 1);
-    assert_eq!(task_board.tasks_by_status(TaskStatus::Done).count(), 5);
+    assert_eq!(task_board.tasks_by_status(TaskStatus::Pending).count(), 0);
+    assert_eq!(task_board.tasks_by_status(TaskStatus::Done).count(), 6);
     assert_eq!(
         task_board
             .tasks_by_status(TaskStatus::Assigned(PawnId(1)))
@@ -669,7 +664,7 @@ fn test_multi_harvest_and_plant() {
     );
     assert_eq!(
         task_board.tasks.get(&task_ids[2]).unwrap().status,
-        TaskStatus::Pending
+        TaskStatus::Done
     );
     assert_eq!(
         *task_board.tasks.get(&task_ids[3]).unwrap(),
@@ -707,16 +702,12 @@ fn test_two_pawns() {
                 id: Some(1),
                 name: Some("Veronica".into()),
                 priorities: vec![TaskSpecKind::Plant, TaskSpecKind::Harvest],
-                sleep: Some(1),
-                hunger: Some(1),
                 ..Default::default()
             },
             PawnDef {
                 id: Some(2),
                 name: Some("Sam".into()),
                 priorities: vec![TaskSpecKind::Plant, TaskSpecKind::Harvest],
-                sleep: Some(1),
-                hunger: Some(1),
                 ..Default::default()
             },
         ],
@@ -750,7 +741,6 @@ fn test_two_pawns() {
     };
 
     let mut app = app_with_scenario(def);
-    app.add_plugins(TaskPlugin { schedule: Update });
     let mut task_board = app.world_mut().resource_mut::<TaskBoard>();
     let task_ids = [
         task_board.add_task(TaskSpec::Harvest(FixtureId(1))),
@@ -768,10 +758,10 @@ fn test_two_pawns() {
     }
 
     let task_board = app.world().resource::<TaskBoard>();
-    // info!("task_board: {:#?}", task_board);
+    info!("task_board: {:#?}", task_board);
     assert_eq!(task_board.tasks.len(), 6);
-    assert_eq!(task_board.tasks_by_status(TaskStatus::Pending).count(), 1);
-    assert_eq!(task_board.tasks_by_status(TaskStatus::Done).count(), 5);
+    assert_eq!(task_board.tasks_by_status(TaskStatus::Pending).count(), 0);
+    assert_eq!(task_board.tasks_by_status(TaskStatus::Done).count(), 6);
     assert_eq!(
         task_board
             .tasks_by_status(TaskStatus::Assigned(PawnId(2)))
@@ -786,11 +776,11 @@ fn test_two_pawns() {
     );
     assert_eq!(
         task_board.tasks.get(&task_ids[2]).unwrap().status,
-        TaskStatus::Pending
+        TaskStatus::Done
     );
 
     let pawn = app.world().get_simid(&PawnId(1)).0;
     assert_eq!(pawn.inventory.of_kind(ItemKind::Berry).count(), 0);
     let pawn = app.world().get_simid(&PawnId(2)).0;
-    assert_eq!(pawn.inventory.of_kind(ItemKind::Berry).count(), 1);
+    assert_eq!(pawn.inventory.of_kind(ItemKind::Berry).count(), 2);
 }

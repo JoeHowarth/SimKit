@@ -1,7 +1,6 @@
 use std::collections::VecDeque;
 
 use bevy::{
-    ecs::schedule::ScheduleLabel,
     platform::collections::{HashMap, HashSet},
     prelude::*,
 };
@@ -12,7 +11,7 @@ use simkit_core::{
     impl_hassimid,
 };
 
-use crate::model::*;
+use crate::{model::*, StepSystemLabel};
 
 pub mod job_execution;
 pub mod job_planning;
@@ -30,26 +29,27 @@ pub struct CompletedTask(pub TaskId);
 #[derive(Event)]
 pub struct NewTask(pub TaskSpec);
 
-pub struct TaskPlugin<S = FixedUpdate> {
-    pub(crate) schedule: S,
-}
+pub struct TaskPlugin;
+// pub struct TaskPlugin<S = FixedUpdate> {
+//     pub(crate) schedule: S,
+// }
 
-impl Default for TaskPlugin<FixedUpdate> {
-    fn default() -> Self {
-        Self {
-            schedule: FixedUpdate,
-        }
-    }
-}
+// impl Default for TaskPlugin<FixedUpdate> {
+//     fn default() -> Self {
+//         Self {
+//             schedule: FixedUpdate,
+//         }
+//     }
+// }
 
-impl<S: ScheduleLabel + Clone> Plugin for TaskPlugin<S> {
+impl Plugin for TaskPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<TaskBoard>()
             .add_event::<CompletedTask>()
             .add_event::<NewTask>()
             .add_systems(PreUpdate, handle_new_task)
             .add_systems(
-                self.schedule.clone(),
+                dbg!(StepSystemLabel::default()),
                 (schedule_pawns, step_jobs, mark_tasks_as_done).chain(),
             );
     }

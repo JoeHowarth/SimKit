@@ -6,8 +6,6 @@ use crate::{fixed_point::FP64, KitCommand, KitCommandType, Tick};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Resource)]
 pub struct Playback {
-    /// The current tick
-    pub tick: Tick,
     /// Time per tick
     pub time_per_tick: Duration,
     pub is_paused: bool,
@@ -16,7 +14,6 @@ pub struct Playback {
 impl Default for Playback {
     fn default() -> Self {
         Self {
-            tick: Tick(0),
             time_per_tick: Duration::from_millis(100),
             is_paused: false,
         }
@@ -24,15 +21,19 @@ impl Default for Playback {
 }
 
 impl Playback {
-    pub fn should_step(playback: Res<Playback>) -> bool {
+    pub fn should_step(playback: Option<Res<Playback>>) -> bool {
+        let Some(playback) = playback else {
+            return true;
+        };
+
         if playback.is_paused {
             debug!("Playback is paused");
         }
         !playback.is_paused
     }
 
-    pub fn inc_tick(mut playback: ResMut<Playback>) {
-        playback.tick.0 += 1;
+    pub fn inc_tick(mut tick: ResMut<Tick>) {
+        tick.0 += 1;
     }
 }
 
@@ -46,6 +47,7 @@ pub enum PlayBackCommand {
 
 pub fn setup_playback_resource(mut commands: Commands) {
     commands.init_resource::<Playback>();
+    commands.insert_resource(Tick(0));
 }
 
 pub fn ensure_playback_resource(

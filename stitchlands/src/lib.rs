@@ -7,21 +7,32 @@ use simkit_core::{
     grid::{index::sync_tile_index, TileId},
     AppState,
     KitSystemSet,
-    Playback,
+    Tick,
 };
 
 use crate::{
-    model::components::{Fixture, Item, Pawn},
+    model::{
+        components::{Fixture, Item, Pawn},
+        snapshot::build_world_snapshot,
+    },
     scenario::LoadedScenarioMeta,
-    snapshot::build_world_snapshot,
 };
 
-pub mod invariants;
+pub mod environment_step;
 pub mod model;
 pub mod scenario;
-pub mod snapshot;
 pub mod tasks;
-pub mod world;
+
+// Redefine StepSystemLabel for tests here since #[cfg(test)] doesn't get
+// exported across crates
+
+#[allow(non_upper_case_globals)]
+#[cfg(not(test))]
+type StepSystemLabel = FixedUpdate;
+
+#[allow(non_upper_case_globals)]
+#[cfg(test)]
+type StepSystemLabel = Update;
 
 // Resources and markers
 #[derive(Resource, Debug, Clone, Copy)]
@@ -52,29 +63,6 @@ impl Default for RngResource {
 #[derive(Component, Default)]
 pub struct WorldTag;
 
-// Sub-labels within PreStep/Step/PostStep to stabilize ordering
-#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
-pub enum StitchPreStepSet {
-    ResetEditBudget,
-    NeedsDaemonEmit,
-    DesignationSpawner,
-    TaskPrune,
-    PathCachePrepare,
-}
-
-#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
-pub enum StitchStepSet {
-    HardNeedInterrupts,
-    SchedulerAssign,
-    JobTick,
-}
-
-#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
-pub enum StitchPostStepSet {
-    ReleaseStaleReservations,
-    TelemetrySample,
-}
-
 // CLI options resource (populated by main)
 #[derive(Resource, Debug, Clone)]
 pub struct CliOptions {
@@ -102,40 +90,10 @@ impl Plugin for StitchlandsCorePlugin {
             .init_resource::<tasks::TaskBoard>()
             .add_plugins(crate::scenario::ScenarioPlugin)
             .add_event::<SnapshotSaveEvent>()
-            // Chain our sub-sets inside KitSystemSet phases
-            .configure_sets(
-                FixedUpdate,
-                (
-                    (
-                        StitchPreStepSet::ResetEditBudget,
-                        StitchPreStepSet::NeedsDaemonEmit,
-                        StitchPreStepSet::DesignationSpawner,
-                        StitchPreStepSet::TaskPrune,
-                        StitchPreStepSet::PathCachePrepare,
-                    )
-                        .chain()
-                        .in_set(KitSystemSet::PreStep),
-                    (
-                        StitchStepSet::HardNeedInterrupts,
-                        StitchStepSet::SchedulerAssign,
-                        StitchStepSet::JobTick,
-                    )
-                        .chain()
-                        .in_set(KitSystemSet::Step),
-                    (
-                        StitchPostStepSet::ReleaseStaleReservations,
-                        StitchPostStepSet::TelemetrySample,
-                    )
-                        .chain()
-                        .in_set(KitSystemSet::PostStep),
-                ),
-            )
-            // Systems (PreStep)
             // consollidate into a single add_systems call
             .add_systems(
-                FixedUpdate,
+                StepSystemLabel::default(),
                 (
-                    reset_edit_budget.in_set(StitchPreStepSet::ResetEditBudget),
                     sync_tile_index::<Pawn>.in_set(KitSystemSet::PostStep),
                     sync_tile_index::<Item>.in_set(KitSystemSet::PostStep),
                 ),
@@ -148,11 +106,6 @@ impl Plugin for StitchlandsCorePlugin {
                 auto_enter_ingame_if_headless,
             );
     }
-}
-
-// 0.a: PreStep system — reset budget
-fn reset_edit_budget(mut budget: ResMut<EditBudget>) {
-    budget.remaining = budget.per_tick;
 }
 
 fn auto_enter_ingame_if_headless(
@@ -213,7 +166,7 @@ pub struct SnapshotSaveEvent {
 
 fn handle_snapshot_save_events(
     mut evr: EventReader<SnapshotSaveEvent>,
-    playback: Res<Playback>,
+    tick: Res<Tick>,
     scenario_meta: Option<Res<LoadedScenarioMeta>>,
     pawns_q: Query<(&Pawn, &TileId)>,
     items_q: Query<(&Item, &TileId)>,
@@ -233,7 +186,7 @@ fn handle_snapshot_save_events(
             .collect();
         let tasks_vec = vec![];
         let snap = build_world_snapshot(
-            &playback,
+            &tick,
             scenario_seed,
             &pawns_vec,
             &items_vec,

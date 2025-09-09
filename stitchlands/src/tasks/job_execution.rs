@@ -128,24 +128,34 @@ pub fn step_toil(
         }
         ToilKind::PickUp { item_id } => {
             let (item, mut item_relation) = items.get_mut(item_id);
-            let item_joined =
-                item.join_no_pawns(*item_relation, |id| *fixtures.get(&id).1);
+            let item_pos = match item_relation.as_ref() {
+                ItemRelation::CarriedBy(pawn_id) => {
+                    if *pawn_id == pawn.id {
+                        return ToilResult::Done;
+                    }
+                    return ToilResult::Failed(format!(
+                        "Invalid PickUp toil: item already carried by pawn \
+                         {:?}",
+                        pawn_id
+                    ));
+                }
+                ItemRelation::InFixture(fixture_id) => {
+                    *fixtures.get(fixture_id).1
+                }
+                ItemRelation::OnGround(tile_id) => *tile_id,
+            };
 
-            if manhattan(*pawn_tile, item_joined.pos) > 1 {
+            if manhattan(*pawn_tile, item_pos) > 1 {
                 return ToilResult::Failed(format!(
                     "Invalid PickUp toil: item not adjacent pawn_pos: \
                      {pawn_tile:?} item_pos: {:?}",
-                    item_joined.pos
+                    item_pos
                 ));
             }
 
-            match &item_joined.relation {
+            match item_relation.as_ref() {
                 ItemRelation::CarriedBy(_) => {
-                    warn!(
-                        "PickUp toil should not be planned if item already in \
-                         inventory"
-                    );
-                    return ToilResult::Done;
+                    unreachable!();
                 }
                 ItemRelation::OnGround(item_tile) => {
                     item_tile_map_index.remove(*item_tile, *item_id);
@@ -268,9 +278,9 @@ pub fn step_toil(
 
             // Reduce hunger (increase hunger stat toward full) with a fixed
             // nutrition value
-            let nutrition = Q40p24::from(0.4);
-            pawn.hunger = if pawn.hunger + nutrition > Q40p24::ONE {
-                Q40p24::ONE
+            let nutrition = Q40p24::from(60);
+            pawn.hunger = if pawn.hunger + nutrition > Q40p24::from(100) {
+                Q40p24::from(100)
             } else {
                 pawn.hunger + nutrition
             };
@@ -287,11 +297,11 @@ pub fn step_toil(
             );
 
             // Update pawn
-            if pawn.sleep >= Q40p24::from(0.1) {
-                pawn.sleep -= Q40p24::from(0.1);
+            if pawn.sleep < Q40p24::from(100) {
+                pawn.sleep += Q40p24::from(10);
                 ToilResult::Running
             } else {
-                pawn.sleep = Q40p24::ZERO;
+                pawn.sleep = Q40p24::from(100);
                 ToilResult::Done
             }
         }

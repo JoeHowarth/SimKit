@@ -2,7 +2,10 @@ use bevy::prelude::*;
 use simkit_core::{grid::index::TileMapIndex, ids::IdIndex};
 
 use super::loader::LoadedScenarioMeta;
-use crate::{model::ids::*, world::WorldGrid, WorldTag};
+use crate::{
+    model::{ids::*, world::WorldGrid},
+    WorldTag,
+};
 
 pub fn cleanup_world(
     mut commands: Commands,

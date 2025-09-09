@@ -5,7 +5,7 @@ use std::{collections::VecDeque, sync::Arc};
 use bevy::prelude::*;
 pub use journal::{Journal, JournalConfig, JournalLine};
 
-use crate::{AppState, KitSystemSet, Playback, Tick, POD};
+use crate::{AppState, KitSystemSet, Tick, POD};
 
 pub trait Simulation: Sync + Send + 'static {
     type State: POD + Resource + Default;
@@ -59,7 +59,7 @@ impl<S: Simulation> Plugin for SimPlugin<S> {
 }
 
 fn run_sim_step<S: Simulation>(
-    playback: Res<Playback>,
+    tick: Res<Tick>,
     mut state: ResMut<S::State>,
     mut actions: EventReader<S::Actions>,
     mut events: EventWriter<S::Event>,
@@ -68,9 +68,7 @@ fn run_sim_step<S: Simulation>(
 ) {
     let actions = actions.read().collect::<Vec<_>>();
     let (new_state, new_events) =
-        simulation
-            .simulation
-            .step(playback.tick, state.clone(), &actions);
+        simulation.simulation.step(*tick, state.clone(), &actions);
     *state = new_state;
 
     JournalConfig::write_update::<S>(

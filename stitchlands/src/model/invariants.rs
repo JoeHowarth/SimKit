@@ -4,11 +4,9 @@ use simkit_core::{
     ids::IdIndex,
 };
 
-use crate::{
-    model::{
-        components::{Fixture, FixtureKind, Item, ItemRelation, Pawn},
-        ids::{FixtureId, ItemId, PawnId},
-    },
+use crate::model::{
+    components::{Fixture, FixtureKind, Item, ItemRelation, Pawn},
+    ids::{FixtureId, ItemId, PawnId},
     world::WorldGrid,
 };
 

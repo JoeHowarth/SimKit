@@ -12,10 +12,13 @@ use simkit_core::{
 
 use super::model::{MapSize, ScenarioDef};
 use crate::{
-    model::{components::*, ids::*},
-    snapshot::load_world_snapshot,
+    model::{
+        components::*,
+        ids::*,
+        snapshot::{load_world_snapshot, WorldSnapshot},
+        world::WorldGrid,
+    },
     tasks::WorkPriority,
-    world::WorldGrid,
     CliOptions,
     RngResource,
 };
@@ -41,7 +44,7 @@ pub fn load_scenario(
         cli.as_deref().and_then(|c| c.snapshot.as_ref()).cloned()
     {
         let s = fs::read_to_string(&snap_path).expect("read snapshot");
-        let snap: crate::snapshot::WorldSnapshot =
+        let snap: WorldSnapshot =
             ron::de::from_str(&s).expect("parse snapshot RON");
         // Seed RNG based on snapshot scenario_seed or CLI fallback
         let fallback_seed = cli.as_deref().map(|c| c.seed).unwrap_or(1);

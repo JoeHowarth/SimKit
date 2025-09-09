@@ -3,10 +3,10 @@ use std::path::PathBuf;
 use bevy::prelude::*;
 use simkit_core::{grid::TileId, ids::IdIndex};
 use stitchlands::{
-    invariants::validate_world,
     model::{
         components::{Fixture, Item, ItemRelation, Pawn},
         ids::{FixtureId, ItemId, PawnId},
+        invariants::validate_world,
     },
     scenario::{
         model::ScenarioDef,

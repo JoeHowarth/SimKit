@@ -1,7 +1,11 @@
 #![allow(clippy::type_complexity)]
 use std::{fmt::Debug, hash::Hash};
 
-use bevy::{platform::collections::HashMap, prelude::*};
+use bevy::{
+    ecs::schedule::ScheduleLabel,
+    platform::collections::HashMap,
+    prelude::*,
+};
 use bevy_asset_loader::loading_state::{LoadingState, LoadingStateAppExt};
 
 pub mod fixed_point;
@@ -19,7 +23,7 @@ pub use playback::{PlayBackCommand, Playback};
 pub use pod::POD;
 
 crate::pod! {
-#[derive(Copy)]
+#[derive(Copy, Resource)]
 pub struct Tick(pub i32);
 
 pub struct GameId(pub String);
@@ -57,9 +61,13 @@ pub enum KitSystemSet {
 }
 }
 
-pub struct KitCoreBase {
+#[derive(Resource)]
+struct StepSystemLabelResource<S: ScheduleLabel + Clone>(S);
+
+pub struct KitCoreBase<S: ScheduleLabel + Clone = FixedUpdate> {
     pub use_states: bool,
     pub with_menu: bool,
+    pub step_system_label: S,
 }
 
 impl Default for KitCoreBase {
@@ -67,11 +75,12 @@ impl Default for KitCoreBase {
         Self {
             use_states: true,
             with_menu: true,
+            step_system_label: FixedUpdate,
         }
     }
 }
 
-impl Plugin for KitCoreBase {
+impl<S: ScheduleLabel + Clone> Plugin for KitCoreBase<S> {
     fn build(&self, app: &mut App) {
         if self.with_menu {
             app.add_plugins(MenuPlugin);
@@ -83,6 +92,9 @@ impl Plugin for KitCoreBase {
             .register_type::<KitCommand>()
             .register_type::<Playback>()
             .add_event::<KitCommand>()
+            .insert_resource(StepSystemLabelResource(
+                self.step_system_label.clone(),
+            ))
             .init_resource::<Playback>()
             .init_resource::<KeyCodeToCommandMap>();
 
@@ -100,25 +112,7 @@ impl Plugin for KitCoreBase {
             app.add_systems(Startup, playback::setup_playback_resource);
         }
 
-        let mut fixed = (
-            KitSystemSet::Tick,
-            KitSystemSet::PreStep,
-            KitSystemSet::Step,
-            KitSystemSet::PostStep,
-        )
-            .chain()
-            .run_if(Playback::should_step);
-        if self.use_states {
-            fixed = fixed.run_if(in_state(AppState::InGame));
-        }
-        app.configure_sets(FixedUpdate, fixed);
-
-        let mut update =
-            (KitSystemSet::HandleCommands, KitSystemSet::PerFrame).chain();
-        if self.use_states {
-            update = update.run_if(in_state(AppState::InGame));
-        }
-        app.configure_sets(Update, update);
+        configure_sets(app, self.step_system_label.clone(), self.use_states);
 
         if self.use_states {
             app.add_systems(
@@ -131,10 +125,36 @@ impl Plugin for KitCoreBase {
         }
 
         app.add_systems(
-            FixedUpdate,
+            self.step_system_label.clone(),
             (Playback::inc_tick.in_set(KitSystemSet::Tick),),
         );
     }
+}
+
+pub fn configure_sets<S: ScheduleLabel + Clone>(
+    app: &mut App,
+    step_system_label: S,
+    use_states: bool,
+) {
+    let mut fixed = (
+        KitSystemSet::Tick,
+        KitSystemSet::PreStep,
+        KitSystemSet::Step,
+        KitSystemSet::PostStep,
+    )
+        .chain()
+        .run_if(Playback::should_step);
+    if use_states {
+        fixed = fixed.run_if(in_state(AppState::InGame));
+    }
+    app.configure_sets(step_system_label.clone(), fixed);
+
+    let mut update =
+        (KitSystemSet::HandleCommands, KitSystemSet::PerFrame).chain();
+    if use_states {
+        update = update.run_if(in_state(AppState::InGame));
+    }
+    app.configure_sets(Update, update);
 }
 
 pub struct KitCorePlugin;
@@ -150,6 +170,7 @@ impl Plugin for KitCoreHeadlessPlugin {
         app.add_plugins(KitCoreBase {
             use_states: false,
             with_menu: false,
+            step_system_label: Update,
         });
     }
 }

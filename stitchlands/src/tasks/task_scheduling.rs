@@ -56,7 +56,7 @@ pub(super) fn schedule_pawns(
                             plan,
                             current_toil: None,
                         };
-                        debug!("Preempted job: {:?}", job);
+                        info!("Preempted job: {:?}", job);
                     }
                     Err(_) => {
                         warn!(
@@ -92,26 +92,16 @@ pub(super) fn schedule_pawns(
     }
 }
 
-impl Pawn {
-    fn sleep_priority(&self) -> Q40p24 {
-        Q40p24::from(1) - self.sleep
-    }
-
-    fn eat_priority(&self) -> Q40p24 {
-        Q40p24::from(1) - self.hunger
-    }
-}
-
 fn should_preempt(pawn: &Pawn, current_job: JobKind) -> Option<JobKind> {
     if current_job == JobKind::Eat {
-        if pawn.sleep_priority() > Q40p24::from(0.6) {
+        if pawn.sleep < Q40p24::from(60) {
             return Some(JobKind::Sleep);
         }
         return None;
     }
 
     // Preemption is in a stable order, so it will not thrash
-    if pawn.eat_priority() > Q40p24::from(0.8) {
+    if pawn.hunger < Q40p24::from(80) {
         return Some(JobKind::Eat);
     }
 
@@ -119,7 +109,7 @@ fn should_preempt(pawn: &Pawn, current_job: JobKind) -> Option<JobKind> {
         return None;
     }
 
-    if pawn.sleep_priority() > Q40p24::from(0.8) {
+    if pawn.sleep < Q40p24::from(80) {
         return Some(JobKind::Sleep);
     }
 
@@ -133,7 +123,7 @@ fn next_job_is_needs(
     items: &ItemQuery<&ItemRelation>,
 ) -> Option<Job> {
     // Sleep and eat threshold are lower than when we have a job
-    if pawn.eat_priority() > Q40p24::from(0.6) {
+    if pawn.hunger < Q40p24::from(60) {
         match build_eat_plan(pawn, pos, items, fixtures) {
             Ok(plan) => {
                 return Some(Job {
@@ -148,7 +138,7 @@ fn next_job_is_needs(
         }
     }
 
-    if pawn.sleep_priority() > Q40p24::from(0.6) {
+    if pawn.sleep < Q40p24::from(60) {
         match build_sleep_plan(pos, fixtures) {
             Ok(plan) => {
                 return Some(Job {
@@ -177,7 +167,7 @@ fn choose_next_job(
 ) -> Job {
     // Check if needs are urgent
     if let Some(job) = next_job_is_needs(pawn, pos, fixtures, items) {
-        debug!("Next job is needs: {:?}", job);
+        info!("Next job is needs: {:?}", job);
         return job;
     }
 
