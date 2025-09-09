@@ -13,6 +13,8 @@ use crate::tasks::TaskSpecKind;
 pub struct MapDef {
     pub size: MapSize,
     pub tiles: Vec<TileDef>,
+    #[serde(default)]
+    pub schematic: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]

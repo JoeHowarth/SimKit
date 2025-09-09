@@ -1,13 +1,16 @@
 use std::{fs, str::FromStr};
 
-use bevy::prelude::*;
+use bevy::{
+    platform::collections::{HashMap, HashSet},
+    prelude::*,
+};
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 use simkit_core::{
     grid::{index::TileMapIndex, GridConfig, TileId},
     ids::IdIndex,
 };
 
-use super::model::ScenarioDef;
+use super::model::{MapSize, ScenarioDef};
 use crate::{
     model::{components::*, ids::*},
     snapshot::load_world_snapshot,
@@ -109,7 +112,72 @@ pub fn load_scenario_from_def(
         sim_seed: Some(sim_seed),
     });
 
+    // Make a mutable copy so we can materialize schematic positions
+    let mut scenario_def = scenario_def;
     let map_size = scenario_def.map.size;
+
+    // Pass 1: If a schematic is present, parse and copy positions into
+    // existing pawn and fixture defs (by matching ids). Validate conflicts.
+    if let Some(s) = &scenario_def.map.schematic {
+        let (schem_pawns, schem_fixtures) = parse_schematic(s, map_size);
+
+        // Validate schematic ids exist
+        let pawn_ids: std::collections::HashSet<u64> = scenario_def
+            .pawns
+            .iter()
+            .filter_map(|p| p.id)
+            .collect();
+        for id in schem_pawns.keys() {
+            assert!(
+                pawn_ids.contains(id),
+                "Schematic references Pawn id {} not present in [pawns] list",
+                id
+            );
+        }
+        let fixture_ids: std::collections::HashSet<u64> = scenario_def
+            .fixtures
+            .iter()
+            .filter_map(|f| f.id)
+            .collect();
+        for id in schem_fixtures.keys() {
+            assert!(
+                fixture_ids.contains(id),
+                "Schematic references Fixture id {} not present in [fixtures] list",
+                id
+            );
+        }
+
+        // Apply pawn positions
+        for p in scenario_def.pawns.iter_mut() {
+            if let Some(id) = p.id {
+                if let Some(pos) = schem_pawns.get(&id).copied() {
+                    if let Some(explicit) = p.pos {
+                        assert_eq!(
+                            explicit, pos,
+                            "Schematic position for Pawn id={} conflicts with explicit pos: {:?} vs {:?}",
+                            id, pos, explicit
+                        );
+                    }
+                    p.pos = Some(pos);
+                }
+            }
+        }
+        // Apply fixture positions
+        for f in scenario_def.fixtures.iter_mut() {
+            if let Some(id) = f.id {
+                if let Some(pos) = schem_fixtures.get(&id).copied() {
+                    if let Some(explicit) = f.pos {
+                        assert_eq!(
+                            explicit, pos,
+                            "Schematic position for Fixture id={} conflicts with explicit pos: {:?} vs {:?}",
+                            id, pos, explicit
+                        );
+                    }
+                    f.pos = Some(pos);
+                }
+            }
+        }
+    }
 
     // Build and insert world grid from map, and prepare tile indices
     let world_grid = WorldGrid::from_map(&scenario_def.map);
@@ -152,11 +220,13 @@ pub fn load_scenario_from_def(
         .map
         .tiles
         .iter()
-        .filter_map(|t| t.item.as_ref().map(|it| {
-            let mut it2 = it.clone();
-            it2.pos = Some(t.pos);
-            it2
-        }))
+        .filter_map(|t| {
+            t.item.as_ref().map(|it| {
+                let mut it2 = it.clone();
+                it2.pos = Some(t.pos);
+                it2
+            })
+        })
         .collect();
     spawn_items_from_def(
         &mut commands,
@@ -227,6 +297,77 @@ fn unique_pos(
     }
     used.insert((pos.x, pos.y));
     pos
+}
+
+fn parse_schematic(
+    s: &str,
+    size: MapSize,
+) -> (HashMap<u64, TileId>, HashMap<u64, TileId>) {
+    let mut pawn_pos: HashMap<u64, TileId> = HashMap::new();
+    let mut fixture_pos: HashMap<u64, TileId> = HashMap::new();
+
+    let lines: Vec<&str> = s.lines().filter(|l| !l.trim().is_empty()).collect();
+    assert_eq!(
+        lines.len() as u32,
+        size.y,
+        "schematic row count {} differs from map.size.y {}",
+        lines.len(),
+        size.y
+    );
+
+    // Track duplicates within each category by tile as well
+    let mut seen_pawn_tiles: HashSet<(i32, i32)> = HashSet::new();
+    let mut seen_fix_tiles: HashSet<(i32, i32)> = HashSet::new();
+
+    for (y, line) in lines.iter().enumerate() {
+        let cols: Vec<&str> = line.trim().split_whitespace().collect();
+        assert_eq!(
+            cols.len() as u32,
+            size.x,
+            "schematic column count at row {} is {}, expected {}",
+            y,
+            cols.len(),
+            size.x
+        );
+        for (x, tok) in cols.iter().enumerate() {
+            if *tok == "." {
+                continue;
+            }
+            let tile = TileId::new(x as i32, y as i32);
+            if let Some(id) = tok.strip_prefix('P') {
+                let id: u64 = id.parse().expect("Invalid pawn id in schematic");
+                assert!(
+                    !pawn_pos.contains_key(&id),
+                    "Pawn id {} appears multiple times in schematic",
+                    id
+                );
+                assert!(
+                    seen_pawn_tiles.insert((tile.x, tile.y)),
+                    "Multiple pawns placed on the same tile {:?}",
+                    tile
+                );
+                pawn_pos.insert(id, tile);
+            } else if let Some(id) = tok.strip_prefix('F') {
+                let id: u64 =
+                    id.parse().expect("Invalid fixture id in schematic");
+                assert!(
+                    !fixture_pos.contains_key(&id),
+                    "Fixture id {} appears multiple times in schematic",
+                    id
+                );
+                assert!(
+                    seen_fix_tiles.insert((tile.x, tile.y)),
+                    "Multiple fixtures placed on the same tile {:?}",
+                    tile
+                );
+                fixture_pos.insert(id, tile);
+            } else {
+                panic!("Unknown token in schematic: '{}'", tok);
+            }
+        }
+    }
+
+    (pawn_pos, fixture_pos)
 }
 
 fn spawn_pawns_from_def(
@@ -442,6 +583,7 @@ mod tests {
             map: model::MapDef {
                 size: model::MapSize { x: 4, y: 4 },
                 tiles: vec![],
+                schematic: None,
             },
             pawns: vec![
                 model::PawnDef {
@@ -534,6 +676,7 @@ mod tests {
                         pos: None,
                     }),
                 }],
+                schematic: None,
             },
             pawns: vec![],
             fixtures: vec![],
@@ -557,7 +700,10 @@ mod tests {
         let (it, rel) = items[0];
         assert!(it.id.0 >= 1000);
         // Item is spawned and placed somewhere on the map
-        let pos = match rel { ItemRelation::OnGround(p) => *p, _ => panic!("expected OnGround item") };
+        let pos = match rel {
+            ItemRelation::OnGround(p) => *p,
+            _ => panic!("expected OnGround item"),
+        };
         assert!(pos.x >= 0 && pos.x < 5 && pos.y >= 0 && pos.y < 5);
 
         // Index reflects placement
@@ -586,6 +732,7 @@ mod tests {
                         pos: None,
                     }),
                 }],
+                schematic: None,
             },
             pawns: vec![],
             fixtures: vec![],
@@ -607,7 +754,10 @@ mod tests {
         let items: Vec<_> = item_q.iter(world).collect();
         assert_eq!(items.len(), 1);
         let (_, rel) = items[0];
-        let pos = match rel { ItemRelation::OnGround(p) => *p, _ => panic!("expected OnGround item") };
+        let pos = match rel {
+            ItemRelation::OnGround(p) => *p,
+            _ => panic!("expected OnGround item"),
+        };
         assert_eq!(pos, TileId::new(2, 3));
     }
 
@@ -618,6 +768,7 @@ mod tests {
             map: model::MapDef {
                 size: model::MapSize { x: 6, y: 4 },
                 tiles: vec![],
+                schematic: None,
             },
             pawns: vec![
                 model::PawnDef {
@@ -648,14 +799,20 @@ mod tests {
         assert_eq!(pawns.len(), 2);
 
         // Eve with id 100 exists at a valid position
-        let eve = pawns.iter().find(|(p, _, n)| p.id.0 == 100 && n.as_str() == "Eve").expect("Eve pawn present");
+        let eve = pawns
+            .iter()
+            .find(|(p, _, n)| p.id.0 == 100 && n.as_str() == "Eve")
+            .expect("Eve pawn present");
         assert!(eve.1.x >= 0 && eve.1.x < 6 && eve.1.y >= 0 && eve.1.y < 4);
 
         // Positions are within bounds and unique in the small map
         let mut seen = std::collections::HashSet::new();
         for (_, pos, _) in pawns.iter() {
             assert!(pos.x >= 0 && pos.x < 6 && pos.y >= 0 && pos.y < 4);
-            assert!(seen.insert((pos.x, pos.y)), "pawn positions must be unique");
+            assert!(
+                seen.insert((pos.x, pos.y)),
+                "pawn positions must be unique"
+            );
         }
 
         // Index reflects placement
@@ -669,12 +826,21 @@ mod tests {
     fn scenario_pawn_inventory_items_are_carried_and_not_on_ground() {
         let def = ScenarioDef {
             sim_seed: Some(11),
-            map: model::MapDef { size: model::MapSize { x: 5, y: 5 }, tiles: vec![] },
+            map: model::MapDef {
+                size: model::MapSize { x: 5, y: 5 },
+                tiles: vec![],
+                schematic: None,
+            },
             pawns: vec![model::PawnDef {
                 id: Some(200),
                 name: Some("Kai".into()),
                 pos: Some(TileId::new(2, 2)),
-                inventory: vec![model::ItemDef { id: Some(3000), kind: "Berry".into(), qty: 1, pos: None }],
+                inventory: vec![model::ItemDef {
+                    id: Some(3000),
+                    kind: "Berry".into(),
+                    qty: 1,
+                    pos: None,
+                }],
                 ..Default::default()
             }],
             fixtures: vec![],
@@ -692,7 +858,8 @@ mod tests {
         app.update();
 
         let world = app.world_mut();
-        // Fetch pawn and its inventory contents, but copy out the values to drop the borrow
+        // Fetch pawn and its inventory contents, but copy out the values to
+        // drop the borrow
         let (pawn_id, item_id) = {
             let mut pawn_q = world.query::<(&Pawn, &TileId)>();
             let pawns: Vec<_> = pawn_q.iter(world).collect();
@@ -719,11 +886,23 @@ mod tests {
                     pos: TileId::new(1, 1),
                     walkable: true,
                     terrain: model::Terrain::Grass,
-                    item: Some(model::ItemDef { id: None, kind: "Berry".into(), qty: 1, pos: None }),
+                    item: Some(model::ItemDef {
+                        id: None,
+                        kind: "Berry".into(),
+                        qty: 1,
+                        pos: None,
+                    }),
                 }],
+                schematic: None,
             },
             pawns: vec![model::PawnDef::default()],
-            fixtures: vec![model::FixtureDef { id: None, kind: "Stockpile".into(), pos: None, inventory: vec![], harvest_countdown: None }],
+            fixtures: vec![model::FixtureDef {
+                id: None,
+                kind: "Stockpile".into(),
+                pos: None,
+                inventory: vec![],
+                harvest_countdown: None,
+            }],
             tasks: vec![],
         };
 
@@ -765,13 +944,22 @@ mod tests {
     fn scenario_fixture_inventory_items_are_infixture_and_not_on_ground() {
         let def = ScenarioDef {
             sim_seed: Some(5),
-            map: model::MapDef { size: model::MapSize { x: 4, y: 4 }, tiles: vec![] },
+            map: model::MapDef {
+                size: model::MapSize { x: 4, y: 4 },
+                tiles: vec![],
+                schematic: None,
+            },
             pawns: vec![],
             fixtures: vec![model::FixtureDef {
                 id: Some(123),
                 kind: "BerryBush".into(),
                 pos: Some(TileId::new(1, 1)),
-                inventory: vec![model::ItemDef { id: None, kind: "Berry".into(), qty: 1, pos: None }],
+                inventory: vec![model::ItemDef {
+                    id: None,
+                    kind: "Berry".into(),
+                    qty: 1,
+                    pos: None,
+                }],
                 harvest_countdown: None,
             }],
             tasks: vec![],
@@ -810,11 +998,89 @@ mod tests {
 
         // EXPECTED: item should be attached to the fixture via InFixture
         // and should NOT have a TileId on the ground.
-        // CURRENT BEHAVIOR: item is spawned on the ground with TileId and no InFixture.
-        // This assertion will FAIL until loader attaches items to fixtures.
+        // CURRENT BEHAVIOR: item is spawned on the ground with TileId and no
+        // InFixture. This assertion will FAIL until loader attaches
+        // items to fixtures.
         let mut q = world.query::<&ItemRelation>();
         let ent = world.resource::<IdIndex<ItemId>>().get(&item_id);
         let relation = q.get(world, ent).unwrap();
         assert_eq!(relation, &ItemRelation::InFixture(fixture_copy.id));
+    }
+
+    #[test]
+    fn schematic_places_pawns_and_fixtures() {
+        // 4x4 map with schematic that places Pawn#1 at (1,1), Pawn#2 at (0,3),
+        // Fixture#5 at (2,2)
+        let schematic = "\n. . . .\n. P1 . .\n. . F5 .\nP2 . . .\n".to_string();
+
+        let def = ScenarioDef {
+            sim_seed: Some(1),
+            map: model::MapDef {
+                size: model::MapSize { x: 4, y: 4 },
+                tiles: vec![],
+                schematic: Some(schematic),
+            },
+            pawns: vec![
+                model::PawnDef {
+                    id: Some(1),
+                    name: Some("Sam".into()),
+                    ..Default::default()
+                },
+                model::PawnDef {
+                    id: Some(2),
+                    name: Some("Bil".into()),
+                    ..Default::default()
+                },
+            ],
+            fixtures: vec![model::FixtureDef {
+                id: Some(5),
+                kind: "Stockpile".into(),
+                pos: None,
+                inventory: vec![],
+                harvest_countdown: None,
+            }],
+            tasks: vec![],
+        };
+
+        let mut app = App::new();
+        app.init_resource::<RngResource>()
+            .init_resource::<IdIndex<PawnId>>()
+            .init_resource::<IdIndex<ItemId>>()
+            .init_resource::<IdIndex<FixtureId>>()
+            .init_resource::<IdIndex<TaskId>>()
+            .insert_resource(TestScenario(def))
+            .add_systems(Startup, sys_load_from_def);
+        app.update();
+
+        let world = app.world_mut();
+        // Assert pawn positions
+        let mut pq = world.query::<(&Pawn, &TileId)>();
+        let mut p1_ok = false;
+        let mut p2_ok = false;
+        for (p, pos) in pq.iter(world) {
+            match p.id.0 {
+                1 => {
+                    assert_eq!(*pos, TileId::new(1, 1));
+                    p1_ok = true;
+                }
+                2 => {
+                    assert_eq!(*pos, TileId::new(0, 3));
+                    p2_ok = true;
+                }
+                _ => {}
+            }
+        }
+        assert!(p1_ok && p2_ok);
+
+        // Assert fixture position
+        let mut fq = world.query::<(&Fixture, &TileId)>();
+        let mut f_ok = false;
+        for (f, pos) in fq.iter(world) {
+            if f.id.0 == 5 {
+                assert_eq!(*pos, TileId::new(2, 2));
+                f_ok = true;
+            }
+        }
+        assert!(f_ok);
     }
 }
