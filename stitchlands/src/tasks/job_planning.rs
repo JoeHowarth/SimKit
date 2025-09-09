@@ -183,7 +183,6 @@ fn build_acquire_item_plan(
     ))
 }
 
-
 pub fn manhattan_path(start: TileId, end: TileId) -> VecDeque<TileId> {
     let mut path = VecDeque::new();
 

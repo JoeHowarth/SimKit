@@ -1,4 +1,3 @@
-
 use super::*;
 use crate::{
     model::queries::WorldExt,
@@ -6,7 +5,12 @@ use crate::{
         model::{FixtureDef, MapDef, MapSize, PawnDef, ScenarioDef},
         testutil::app_with_scenario,
     },
-    tasks::{job_planning::manhattan_path, TaskPlugin, TaskSpecKind, TaskStatus},
+    tasks::{
+        job_planning::manhattan_path,
+        TaskPlugin,
+        TaskSpecKind,
+        TaskStatus,
+    },
 };
 
 #[test]
@@ -454,7 +458,7 @@ fn test_multi_harvest_and_plant() {
     ];
 
     // Helper functions (high-level, reduce boilerplate)
-    use bevy::prelude::QueryState;
+
     let pawn_id = PawnId(1);
     let (_, e) = app.world().get_simid(&pawn_id);
     let mut q = app.world_mut().query::<(&TileId, &Pawn, &Job)>();

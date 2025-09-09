@@ -1,20 +1,13 @@
 use std::collections::VecDeque;
 
-use bevy::{
-    ecs::schedule::ScheduleLabel,
-    platform::collections::{HashMap, HashSet},
-    prelude::*,
-};
-use serde::{Deserialize, Serialize};
+use bevy::prelude::*;
 use simkit_core::{
     fixed_point::Q40p24,
     grid::{index::TileMapIndex, TileId},
-    ids::{IdIndex, SimId},
-    impl_hassimid,
+    ids::SimId,
 };
 
 use super::*;
-use crate::model::*;
 
 pub(super) fn schedule_pawns(
     mut pawns: Query<(&Pawn, &TileId, &WorkPriority, &mut Job)>,

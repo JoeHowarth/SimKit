@@ -5,7 +5,10 @@ use bevy::{
     },
     prelude::*,
 };
-use simkit_core::{grid::TileId, ids::{HasSimId, IdIndex, SimId}};
+use simkit_core::{
+    grid::TileId,
+    ids::{HasSimId, IdIndex, SimId},
+};
 
 use super::*;
 
@@ -133,7 +136,6 @@ impl WorldExt for World {
         (entity, e, component)
     }
 }
-
 
 pub fn neartest_item_pos(
     pawn: &Pawn,

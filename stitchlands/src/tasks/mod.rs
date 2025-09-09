@@ -7,9 +7,8 @@ use bevy::{
 };
 use serde::{Deserialize, Serialize};
 use simkit_core::{
-    fixed_point::Q40p24,
     grid::{index::TileMapIndex, TileId},
-    ids::{IdIndex, SimId},
+    ids::IdIndex,
     impl_hassimid,
 };
 

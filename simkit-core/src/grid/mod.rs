@@ -33,15 +33,7 @@ impl GridConfig {
 
 /// Tile identifier using Bevy-style coordinates (x to the right, y up).
 #[derive(
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Hash,
-    Serialize,
-    Deserialize,
-    Reflect,
-    Component,
+    Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect, Component,
 )]
 pub struct TileId {
     pub x: i32,

@@ -8,9 +8,7 @@ use simkit_core::{
 
 use crate::{
     model::*,
-    tasks::{
-        manhattan, nearest_fixture_with_item, nearest_item_on_ground, CompletedTask, Job, JobKind, Task, TaskBoard, TaskSpec, ToilKind, ToilResult
-    },
+    tasks::{manhattan, CompletedTask, Job, JobKind, ToilKind, ToilResult},
 };
 
 pub fn step_jobs(
