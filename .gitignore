@@ -8,6 +8,6 @@ replays
 .vscode
 .idea
 *.iml
-journal*
+journal.json
 logs/
 *.log
