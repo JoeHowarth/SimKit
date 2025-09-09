@@ -7,7 +7,7 @@ use stitchlands::{
     invariants::validate_world,
     model::{
         components::{Fixture, Item, ItemRelation, Pawn},
-        ids::{FixtureId, ItemId, PawnId, TaskId},
+        ids::{FixtureId, ItemId, PawnId},
     },
     scenario::{model::ScenarioDef},
     scenario::testutil::{app_with_scenario, load_toml},

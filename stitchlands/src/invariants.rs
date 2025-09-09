@@ -217,7 +217,7 @@ pub fn validate_world(world: &mut World) -> Vec<String> {
         let item_tile_index = world.resource::<TileMapIndex<ItemId>>();
         let grid = world.get_resource::<WorldGrid>().cloned();
         for (e, iid, qty, relation) in item_infos.iter() {
-            let ent = item_index.get(&iid);
+            let ent = item_index.get(iid);
             if ent != *e {
                 errors.push(format!(
                     "Item {:?} IdIndex mismatch: index={:?} entity={:?}",
@@ -249,8 +249,8 @@ pub fn validate_world(world: &mut World) -> Vec<String> {
                             iid, p
                         ));
                     }
-                    if pawn_inventory_items.contains_key(&iid)
-                        || fixture_inventory_items.contains_key(&iid)
+                    if pawn_inventory_items.contains_key(iid)
+                        || fixture_inventory_items.contains_key(iid)
                     {
                         errors.push(format!(
                             "Item {:?} on ground but appears in an inventory",
@@ -259,7 +259,7 @@ pub fn validate_world(world: &mut World) -> Vec<String> {
                     }
                 }
                 ItemRelation::CarriedBy(pid) => {
-                    match pawn_inventory_items.get(&iid) {
+                    match pawn_inventory_items.get(iid) {
                         Some(owner) if *owner == *pid => {}
                         Some(owner) => errors.push(format!(
                             "Item {:?} carried by {:?} but appears in pawn \
@@ -272,7 +272,7 @@ pub fn validate_world(world: &mut World) -> Vec<String> {
                             iid, pid
                         )),
                     }
-                    if fixture_inventory_items.contains_key(&iid) {
+                    if fixture_inventory_items.contains_key(iid) {
                         errors.push(format!(
                             "Item {:?} carried by {:?} but appears in a \
                              fixture inventory",
@@ -281,7 +281,7 @@ pub fn validate_world(world: &mut World) -> Vec<String> {
                     }
                 }
                 ItemRelation::InFixture(fid) => {
-                    match fixture_inventory_items.get(&iid) {
+                    match fixture_inventory_items.get(iid) {
                         Some(owner) if *owner == *fid => {}
                         Some(owner) => errors.push(format!(
                             "Item {:?} in fixture {:?} but appears in fixture \
@@ -294,7 +294,7 @@ pub fn validate_world(world: &mut World) -> Vec<String> {
                             iid, fid
                         )),
                     }
-                    if pawn_inventory_items.contains_key(&iid) {
+                    if pawn_inventory_items.contains_key(iid) {
                         errors.push(format!(
                             "Item {:?} in fixture {:?} but appears in a pawn \
                              inventory",

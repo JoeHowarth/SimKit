@@ -1,8 +1,7 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::BTreeMap,
     fmt::Debug,
     hash::Hash,
-    marker::PhantomData,
 };
 
 use bevy::prelude::*;
@@ -122,7 +121,7 @@ impl<T: SimId> Default for IdIndex<T> {
 impl<T: SimId> IdIndex<T> {
     #[inline]
     pub fn register(&mut self, provided: T) {
-        if let Some(_) = self.0.insert(provided, None) {
+        if self.0.insert(provided, None).is_some() {
             panic!("IdIndex already contains id: {provided:?}");
         }
     }

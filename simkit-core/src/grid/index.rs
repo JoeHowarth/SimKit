@@ -34,7 +34,7 @@ impl<T: SimId> TileMapIndex<T> {
                 return Some(id);
             }
         }
-        return None;
+        None
     }
 
     #[inline]

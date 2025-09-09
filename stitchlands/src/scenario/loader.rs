@@ -320,7 +320,7 @@ fn parse_schematic(
     let mut seen_fix_tiles: HashSet<(i32, i32)> = HashSet::new();
 
     for (y, line) in lines.iter().enumerate() {
-        let cols: Vec<&str> = line.trim().split_whitespace().collect();
+        let cols: Vec<&str> = line.split_whitespace().collect();
         assert_eq!(
             cols.len() as u32,
             size.x,

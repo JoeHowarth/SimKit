@@ -155,12 +155,12 @@ pub fn step_toil<'a>(
                 "Pawn {:?} has reached the target tile {:?}",
                 pawn.id, target
             );
-            return ToilResult::Done;
+            ToilResult::Done
         }
         ToilKind::PickUp { item_id } => {
-            let (item, mut item_relation) = items.get_mut(&item_id);
+            let (item, mut item_relation) = items.get_mut(item_id);
             let item_joined = item.join_no_pawns(*item_relation, |id| {
-                fixtures.get(&id).1.clone()
+                *fixtures.get(&id).1
             });
 
             if manhattan(*pawn_tile, item_joined.pos) > 1 {
@@ -184,27 +184,27 @@ pub fn step_toil<'a>(
                 }
                 ItemRelation::InFixture(fixture_id) => {
                     let (mut fixture, _) = fixtures.get_mut(fixture_id);
-                    fixture.inventory.remove(&item_id);
+                    fixture.inventory.remove(item_id);
                 }
             }
 
             // Update item relation
             *item_relation = ItemRelation::CarriedBy(pawn.id);
             pawn.inventory.add((*item_id, item.kind));
-            return ToilResult::Done;
+            ToilResult::Done
         }
         ToilKind::PutDown {
             item_id,
             target_tile,
         } => {
-            assert!(pawn.inventory.contains(&item_id), "Item not in inventory");
+            assert!(pawn.inventory.contains(item_id), "Item not in inventory");
             let (item, item_relation) = items.get(item_id);
 
-            pawn.inventory.remove(&item_id);
+            pawn.inventory.remove(item_id);
             item_tile_map_index.move_id(None, *target_tile, *item_id);
             *items.get_mut(item_id).1 = ItemRelation::OnGround(*target_tile);
 
-            return ToilResult::Done;
+            ToilResult::Done
         }
         ToilKind::Plant {
             seed_id,
@@ -214,7 +214,7 @@ pub fn step_toil<'a>(
             // Check preconditions
             assert_eq!(item.kind, ItemKind::Berry);
             assert_eq!(*item_relation, ItemRelation::CarriedBy(pawn.id));
-            assert!(pawn.inventory.contains(&seed_id));
+            assert!(pawn.inventory.contains(seed_id));
             if manhattan(*pawn_tile, *target_tile_id) > 1 {
                 return ToilResult::Failed(format!(
                     "Invalid Plant toil: target not adjacent pawn_pos: \
@@ -226,7 +226,7 @@ pub fn step_toil<'a>(
             // Update item components
             commands.entity(items.entity(seed_id)).despawn();
             items.index.remove(*seed_id);
-            pawn.inventory.remove(&seed_id);
+            pawn.inventory.remove(seed_id);
 
             // Create new fixture
             let fixture_id = fixtures.index.alloc(None);
@@ -245,7 +245,7 @@ pub fn step_toil<'a>(
             fixtures.index.insert(fixture_id, fixture_entity);
             fixture_tile_index.move_id(None, *target_tile_id, fixture_id);
 
-            return ToilResult::Done;
+            ToilResult::Done
         }
         ToilKind::Harvest { fixture_id } => {
             let (mut fixture, fixture_tile) = fixtures.get_mut(fixture_id);
@@ -283,20 +283,20 @@ pub fn step_toil<'a>(
             // Update inventory
             pawn.inventory.add((item_id, ItemKind::Berry));
 
-            return ToilResult::Done;
+            ToilResult::Done
         }
         ToilKind::Consume { item_id } => {
-            assert!(pawn.inventory.contains(&item_id), "Item not in inventory");
+            assert!(pawn.inventory.contains(item_id), "Item not in inventory");
             let (item, item_relation) = items.get(item_id);
             assert_eq!(*item_relation, ItemRelation::CarriedBy(pawn.id));
 
             assert_eq!(item.kind, ItemKind::Berry);
-            assert!(pawn.inventory.contains(&item_id));
-            pawn.inventory.remove(&item_id);
+            assert!(pawn.inventory.contains(item_id));
+            pawn.inventory.remove(item_id);
 
             commands.entity(items.entity(item_id)).despawn();
 
-            return ToilResult::Done;
+            ToilResult::Done
         }
         ToilKind::Sleep { fixture_id } => {
             let (fixture, fixture_tile) = fixtures.get(fixture_id);
@@ -310,10 +310,10 @@ pub fn step_toil<'a>(
             // Update pawn
             if pawn.sleep >= Q40p24::from(0.1) {
                 pawn.sleep -= Q40p24::from(0.1);
-                return ToilResult::Running;
+                ToilResult::Running
             } else {
                 pawn.sleep = Q40p24::ZERO;
-                return ToilResult::Done;
+                ToilResult::Done
             }
         }
     }
@@ -387,7 +387,7 @@ pub fn build_plan_for_task(
             }
 
             let (mut plan, seed) = build_acquire_item_plan(
-                pawn, pawn_tile, &item_kind, items, fixtures,
+                pawn, pawn_tile, item_kind, items, fixtures,
             )
             .ok_or_else(|| format!("Failed to acquire item {:?}", item_kind))?;
 
