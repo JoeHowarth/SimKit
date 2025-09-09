@@ -51,7 +51,10 @@ impl<S: Simulation> Plugin for SimPlugin<S> {
                 OnEnter(AppState::InGame),
                 (JournalConfig::init_journal_file::<S>,),
             )
-            .add_systems(FixedUpdate, run_sim_step::<S>.in_set(KitSystemSet::Step));
+            .add_systems(
+                FixedUpdate,
+                run_sim_step::<S>.in_set(KitSystemSet::Step),
+            );
     }
 }
 
@@ -70,7 +73,12 @@ fn run_sim_step<S: Simulation>(
             .step(playback.tick, state.clone(), &actions);
     *state = new_state;
 
-    JournalConfig::write_update::<S>(journal_config, &state, &actions, &new_events);
+    JournalConfig::write_update::<S>(
+        journal_config,
+        &state,
+        &actions,
+        &new_events,
+    );
 
     for event in new_events {
         events.write(event);

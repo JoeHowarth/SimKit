@@ -10,7 +10,8 @@ impl Plugin for MenuPlugin {
             .add_systems(OnExit(AppState::Menu), cleanup_menu)
             .add_systems(
                 Update,
-                (menu_button_system, menu_keyboard_input).run_if(in_state(AppState::Menu)),
+                (menu_button_system, menu_keyboard_input)
+                    .run_if(in_state(AppState::Menu)),
             )
             .add_systems(
                 Update,
@@ -90,7 +91,10 @@ fn setup_menu(mut commands: Commands) {
         });
 }
 
-fn cleanup_menu(mut commands: Commands, menu_query: Query<Entity, With<MenuUI>>) {
+fn cleanup_menu(
+    mut commands: Commands,
+    menu_query: Query<Entity, With<MenuUI>>,
+) {
     for entity in menu_query.iter() {
         commands.entity(entity).despawn();
     }

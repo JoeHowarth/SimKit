@@ -65,7 +65,6 @@ pub fn step_jobs(
     mut commands: Commands,
     mut completed_tasks: EventWriter<CompletedTask>,
     mut pawns: PawnQueryMut<(&mut TileId, &mut Job)>,
-    mut q: Query<&mut TileId>,
     mut items: ItemQueryMut<&mut ItemRelation>,
     mut fixtures: FixtureQueryMut<&TileId>,
     mut pawn_tile_map_index: ResMut<TileMapIndex<PawnId>>,
@@ -90,9 +89,6 @@ pub fn step_jobs(
             job.current_toil = Some(toil);
         }
 
-        let x = q.get_mut(fixtures.index.get(&FixtureId(0)));
-        let y = items.get_mut(&ItemId(0));
-
         // Run the current toil
         let toil = job.current_toil.as_mut().unwrap();
         step_toil(
@@ -109,7 +105,7 @@ pub fn step_jobs(
     }
 }
 
-pub fn step_toil<'a>(
+pub fn step_toil(
     commands: &mut Commands,
     toil: &mut ToilKind,
     pawn: &mut Pawn,
@@ -121,7 +117,7 @@ pub fn step_toil<'a>(
     fixture_tile_index: &mut ResMut<TileMapIndex<FixtureId>>,
 ) -> ToilResult {
     match toil {
-        ToilKind::ReserveItem { item } => {
+        ToilKind::ReserveItem { item: _ } => {
             // We will implement this later, noop for now
             ToilResult::Done
         }
@@ -159,9 +155,8 @@ pub fn step_toil<'a>(
         }
         ToilKind::PickUp { item_id } => {
             let (item, mut item_relation) = items.get_mut(item_id);
-            let item_joined = item.join_no_pawns(*item_relation, |id| {
-                *fixtures.get(&id).1
-            });
+            let item_joined =
+                item.join_no_pawns(*item_relation, |id| *fixtures.get(&id).1);
 
             if manhattan(*pawn_tile, item_joined.pos) > 1 {
                 return ToilResult::Failed(format!(
@@ -172,7 +167,7 @@ pub fn step_toil<'a>(
             }
 
             match &item_joined.relation {
-                ItemRelation::CarriedBy(pawn_id) => {
+                ItemRelation::CarriedBy(_) => {
                     warn!(
                         "PickUp toil should not be planned if item already in \
                          inventory"
@@ -198,7 +193,6 @@ pub fn step_toil<'a>(
             target_tile,
         } => {
             assert!(pawn.inventory.contains(item_id), "Item not in inventory");
-            let (item, item_relation) = items.get(item_id);
 
             pawn.inventory.remove(item_id);
             item_tile_map_index.move_id(None, *target_tile, *item_id);
@@ -472,7 +466,7 @@ fn build_acquire_item_plan(
     let (item_id, _dist) = closer_option_item_locator(on_ground, fixture)?;
 
     let item_pos = match items.get(&item_id).1 {
-        ItemRelation::CarriedBy(pawn_id) => *pawn_pos,
+        ItemRelation::CarriedBy(_) => *pawn_pos,
         ItemRelation::InFixture(fixture_id) => *fixtures.get(fixture_id).1,
         ItemRelation::OnGround(tile_id) => *tile_id,
     };

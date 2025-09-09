@@ -10,13 +10,37 @@ use simkit_core::{
 
 struct MySimulation;
 
-#[derive(Debug, Clone, Reflect, Default, Resource, Hash, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    Reflect,
+    Default,
+    Resource,
+    Hash,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+)]
 struct MyState(i32);
 
-#[derive(Debug, Clone, Reflect, Event, Default, Hash, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    Reflect,
+    Event,
+    Default,
+    Hash,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+)]
 struct MyAction(i32);
 
-#[derive(Debug, Clone, Reflect, Event, Hash, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Reflect, Event, Hash, PartialEq, Eq, Serialize, Deserialize,
+)]
 struct MyEvent(i32);
 
 impl Simulation for MySimulation {

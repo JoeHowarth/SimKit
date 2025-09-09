@@ -3,10 +3,7 @@ use std::{fs, path::Path};
 use bevy::prelude::*;
 use simkit_core::{grid::TileId, ids::IdIndex};
 
-use super::{
-    load_scenario_from_def,
-    model::ScenarioDef,
-};
+use super::{load_scenario_from_def, model::ScenarioDef};
 use crate::{
     model::{
         components::{Fixture, Pawn},
@@ -57,7 +54,10 @@ pub fn app_with_scenario(def: ScenarioDef) -> App {
 /// Assert a tile position is within [0, w) x [0, h).
 pub fn assert_within_bounds(pos: TileId, size: (u32, u32)) {
     assert!(
-        pos.x >= 0 && pos.x < size.0 as i32 && pos.y >= 0 && pos.y < size.1 as i32,
+        pos.x >= 0
+            && pos.x < size.0 as i32
+            && pos.y >= 0
+            && pos.y < size.1 as i32,
         "pos {:?} not within bounds {:?}",
         pos,
         size
@@ -93,4 +93,3 @@ pub fn load_toml<P: AsRef<Path>>(p: P) -> ScenarioDef {
     let s = fs::read_to_string(p).expect("read scenario toml");
     toml::from_str(&s).expect("parse scenario toml")
 }
-

@@ -4,7 +4,9 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 /// Configuration for a 2D grid.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Reflect)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Reflect,
+)]
 pub struct GridConfig {
     pub width: u32,
     pub height: u32,
@@ -13,7 +15,10 @@ pub struct GridConfig {
 impl GridConfig {
     #[inline]
     pub fn in_bounds(&self, tile: TileId) -> bool {
-        tile.x >= 0 && tile.y >= 0 && (tile.x as u32) < self.width && (tile.y as u32) < self.height
+        tile.x >= 0
+            && tile.y >= 0
+            && (tile.x as u32) < self.width
+            && (tile.y as u32) < self.height
     }
 
     #[inline]
@@ -27,7 +32,18 @@ impl GridConfig {
 }
 
 /// Tile identifier using Bevy-style coordinates (x to the right, y up).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect, Component)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    Reflect,
+    Component,
+)]
 pub struct TileId {
     pub x: i32,
     pub y: i32,

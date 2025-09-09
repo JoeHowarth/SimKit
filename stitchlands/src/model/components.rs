@@ -2,12 +2,7 @@ use std::str::FromStr;
 
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
-use simkit_core::{
-    fixed_point::Q40p24,
-    grid::TileId,
-    ids::HasSimId,
-    impl_hassimid,
-};
+use simkit_core::{fixed_point::Q40p24, grid::TileId, impl_hassimid};
 
 use crate::{
     model::{
@@ -85,6 +80,7 @@ pub enum ItemKind {
 }
 
 impl ItemKind {
+    #[allow(dead_code)]
     fn has_nutrition(&self) -> Option<Q40p24> {
         match self {
             ItemKind::Berry => Some(Q40p24::ONE),
@@ -92,6 +88,7 @@ impl ItemKind {
         }
     }
 
+    #[allow(dead_code)]
     fn plantable_fixture(&self) -> Option<FixtureKind> {
         match self {
             ItemKind::Berry => Some(FixtureKind::BerryBush),
@@ -103,7 +100,7 @@ impl ItemKind {
 impl FromStr for ItemKind {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (s, reset) = s.split_once(':').unwrap_or((s, ""));
+        let (s, _reset) = s.split_once(':').unwrap_or((s, ""));
         match s {
             "Berry" => Ok(Self::Berry),
             // "Untyped" => Ok(Self::Untyped(reset.to_string())),
@@ -112,7 +109,9 @@ impl FromStr for ItemKind {
     }
 }
 
-#[derive(Component, Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Component, Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize,
+)]
 pub enum ItemRelation {
     CarriedBy(PawnId),
     InFixture(FixtureId),

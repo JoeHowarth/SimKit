@@ -31,7 +31,7 @@ pub fn load_scenario(
     mut pawn_index: ResMut<IdIndex<PawnId>>,
     mut item_index: ResMut<IdIndex<ItemId>>,
     mut fixture_index: ResMut<IdIndex<FixtureId>>,
-    mut task_index: ResMut<IdIndex<TaskId>>,
+    task_index: ResMut<IdIndex<TaskId>>,
 ) {
     // Resources provided by plugin init
 
@@ -64,7 +64,6 @@ pub fn load_scenario(
             &mut pawn_index,
             &mut item_index,
             &mut fixture_index,
-            &mut task_index,
             &snap,
         );
         return;
@@ -101,7 +100,7 @@ pub fn load_scenario_from_def(
     mut pawn_index: ResMut<IdIndex<PawnId>>,
     mut item_index: ResMut<IdIndex<ItemId>>,
     mut fixture_index: ResMut<IdIndex<FixtureId>>,
-    task_index: ResMut<IdIndex<TaskId>>,
+    _task_index: ResMut<IdIndex<TaskId>>,
     scenario_def: ScenarioDef,
     fallback_seed: u64,
 ) {
@@ -122,11 +121,8 @@ pub fn load_scenario_from_def(
         let (schem_pawns, schem_fixtures) = parse_schematic(s, map_size);
 
         // Validate schematic ids exist
-        let pawn_ids: std::collections::HashSet<u64> = scenario_def
-            .pawns
-            .iter()
-            .filter_map(|p| p.id)
-            .collect();
+        let pawn_ids: std::collections::HashSet<u64> =
+            scenario_def.pawns.iter().filter_map(|p| p.id).collect();
         for id in schem_pawns.keys() {
             assert!(
                 pawn_ids.contains(id),
@@ -134,15 +130,13 @@ pub fn load_scenario_from_def(
                 id
             );
         }
-        let fixture_ids: std::collections::HashSet<u64> = scenario_def
-            .fixtures
-            .iter()
-            .filter_map(|f| f.id)
-            .collect();
+        let fixture_ids: std::collections::HashSet<u64> =
+            scenario_def.fixtures.iter().filter_map(|f| f.id).collect();
         for id in schem_fixtures.keys() {
             assert!(
                 fixture_ids.contains(id),
-                "Schematic references Fixture id {} not present in [fixtures] list",
+                "Schematic references Fixture id {} not present in [fixtures] \
+                 list",
                 id
             );
         }
@@ -154,7 +148,8 @@ pub fn load_scenario_from_def(
                     if let Some(explicit) = p.pos {
                         assert_eq!(
                             explicit, pos,
-                            "Schematic position for Pawn id={} conflicts with explicit pos: {:?} vs {:?}",
+                            "Schematic position for Pawn id={} conflicts with \
+                             explicit pos: {:?} vs {:?}",
                             id, pos, explicit
                         );
                     }
@@ -169,7 +164,8 @@ pub fn load_scenario_from_def(
                     if let Some(explicit) = f.pos {
                         assert_eq!(
                             explicit, pos,
-                            "Schematic position for Fixture id={} conflicts with explicit pos: {:?} vs {:?}",
+                            "Schematic position for Fixture id={} conflicts \
+                             with explicit pos: {:?} vs {:?}",
                             id, pos, explicit
                         );
                     }
@@ -199,7 +195,6 @@ pub fn load_scenario_from_def(
         &scenario_def.pawns,
         &mut pawn_tile_index,
         &mut item_index,
-        &mut item_tile_index,
     );
 
     // Fixtures
@@ -211,7 +206,6 @@ pub fn load_scenario_from_def(
         &scenario_def.fixtures,
         &mut fixture_tile_index,
         &mut item_index,
-        &mut item_tile_index,
     );
 
     // Items on Ground
@@ -252,36 +246,6 @@ fn rand_pos(rng: &mut SmallRng, size: super::model::MapSize) -> TileId {
         x: rng.gen_range(0..size.x as i32),
         y: rng.gen_range(0..size.y as i32),
     }
-}
-
-fn clamp_pos(mut p: TileId, size: super::model::MapSize) -> TileId {
-    if p.x < 0 {
-        p.x = 0
-    };
-    if p.y < 0 {
-        p.y = 0
-    };
-    if p.x >= size.x as i32 {
-        p.x = size.x as i32 - 1
-    };
-    if p.y >= size.y as i32 {
-        p.y = size.y as i32 - 1
-    };
-    p
-}
-
-fn norm_rect(
-    a: TileId,
-    b: TileId,
-    size: super::model::MapSize,
-) -> (TileId, TileId) {
-    let a = clamp_pos(a, size);
-    let b = clamp_pos(b, size);
-    let minx = a.x.min(b.x);
-    let miny = a.y.min(b.y);
-    let maxx = a.x.max(b.x);
-    let maxy = a.y.max(b.y);
-    (TileId { x: minx, y: miny }, TileId { x: maxx, y: maxy })
 }
 
 fn unique_pos(
@@ -378,7 +342,6 @@ fn spawn_pawns_from_def(
     pawns: &[super::model::PawnDef],
     tile_index: &mut TileMapIndex<PawnId>,
     item_index: &mut IdIndex<ItemId>,
-    item_tile_index: &mut TileMapIndex<ItemId>,
 ) {
     use std::collections::HashSet;
     let mut used_positions: HashSet<(i32, i32)> = HashSet::new();
@@ -487,7 +450,6 @@ fn spawn_fixtures_from_def(
     fixtures: &[super::model::FixtureDef],
     tile_index: &mut TileMapIndex<FixtureId>,
     item_index: &mut IdIndex<ItemId>,
-    item_tile_index: &mut TileMapIndex<ItemId>,
 ) {
     use std::collections::HashSet;
     let mut used_positions: HashSet<(i32, i32)> = HashSet::new();
@@ -550,9 +512,14 @@ fn spawn_fixtures_from_def(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scenario::model;
-    use crate::scenario::testutil::{
-        app_with_scenario, assert_within_bounds, fixture_by_id, pawn_by_id,
+    use crate::scenario::{
+        model,
+        testutil::{
+            app_with_scenario,
+            assert_within_bounds,
+            fixture_by_id,
+            pawn_by_id,
+        },
     };
 
     #[test]
@@ -793,7 +760,6 @@ mod tests {
             tasks: vec![],
         };
 
-
         let mut app = app_with_scenario(def);
 
         let world = app.world_mut();
@@ -900,7 +866,7 @@ mod tests {
 
         let world = app.world_mut();
         // Scope fixture borrow so we can run other queries after.
-        let ( _fe, fixture_copy, fpos_copy) = fixture_by_id(world, 123);
+        let (_fe, fixture_copy, fpos_copy) = fixture_by_id(world, 123);
         assert_eq!(fixture_copy.kind, FixtureKind::BerryBush);
         assert_eq!(fixture_copy.harvest_countdown, Some(100));
         assert_eq!(fpos_copy, TileId::new(1, 1));

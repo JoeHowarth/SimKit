@@ -89,7 +89,8 @@ impl Plugin for KitCoreBase {
         if self.use_states {
             app.insert_state(AppState::AssetLoading)
                 .add_loading_state(
-                    LoadingState::new(AppState::AssetLoading).continue_to_state(AppState::Menu),
+                    LoadingState::new(AppState::AssetLoading)
+                        .continue_to_state(AppState::Menu),
                 )
                 .add_systems(
                     OnEnter(AppState::InGame),
@@ -112,7 +113,8 @@ impl Plugin for KitCoreBase {
         }
         app.configure_sets(FixedUpdate, fixed);
 
-        let mut update = (KitSystemSet::HandleCommands, KitSystemSet::PerFrame).chain();
+        let mut update =
+            (KitSystemSet::HandleCommands, KitSystemSet::PerFrame).chain();
         if self.use_states {
             update = update.run_if(in_state(AppState::InGame));
         }
@@ -121,7 +123,8 @@ impl Plugin for KitCoreBase {
         if self.use_states {
             app.add_systems(
                 Update,
-                playback::ensure_playback_resource.run_if(in_state(AppState::InGame)),
+                playback::ensure_playback_resource
+                    .run_if(in_state(AppState::InGame)),
             );
         } else {
             app.add_systems(Update, playback::ensure_playback_resource);
@@ -175,11 +178,15 @@ impl Default for KeyCodeToCommandMap {
                 (KeyP, PlayBack(PlayBackCommand::TogglePaused)),
                 (
                     BracketLeft,
-                    PlayBack(PlayBackCommand::TimePerTickMultiplier(1.2.into())),
+                    PlayBack(PlayBackCommand::TimePerTickMultiplier(
+                        1.2.into(),
+                    )),
                 ),
                 (
                     BracketRight,
-                    PlayBack(PlayBackCommand::TimePerTickMultiplier(0.8.into())),
+                    PlayBack(PlayBackCommand::TimePerTickMultiplier(
+                        0.8.into(),
+                    )),
                 ),
             ]),
         }

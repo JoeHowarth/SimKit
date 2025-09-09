@@ -1,8 +1,4 @@
-use std::{
-    collections::BTreeMap,
-    fmt::Debug,
-    hash::Hash,
-};
+use std::{collections::BTreeMap, fmt::Debug, hash::Hash};
 
 use bevy::prelude::*;
 

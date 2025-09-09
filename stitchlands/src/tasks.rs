@@ -111,7 +111,7 @@ impl Default for TaskBoard {
 
 impl TaskBoard {
     /// Add a never before seen task to the pending state
-    fn add_task(&mut self, spec: TaskSpec) -> TaskId {
+    pub fn add_task(&mut self, spec: TaskSpec) -> TaskId {
         let id = self.index.alloc(None);
         let kind = spec.kind();
         let task = Task {
@@ -437,7 +437,7 @@ pub fn neartest_item_pos(
 
     let (item_id, _dist) = closer_option_item_locator(on_ground, fixture)?;
     Some(match items.get(&item_id).1 {
-        ItemRelation::CarriedBy(pawn_id) => *pawn_pos,
+        ItemRelation::CarriedBy(_) => *pawn_pos,
         ItemRelation::InFixture(fixture_id) => *fixtures.get(fixture_id).1,
         ItemRelation::OnGround(tile_id) => *tile_id,
     })
@@ -460,7 +460,6 @@ pub fn nearest_item_on_ground(
     // find nearest item on ground that matches item
     let mut nearest = None;
     for (item, item_rel) in items.query.iter() {
-
         let ItemRelation::OnGround(item_pos) = item_rel else {
             continue;
         };

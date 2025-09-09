@@ -18,7 +18,17 @@ pub type FP64 = Q40p24;
 
 /// Q40.24 = i64 scaled by 2^24
 #[derive(
-    Copy, Clone, Default, Eq, PartialEq, Ord, PartialOrd, Hash, Reflect, Serialize, Deserialize,
+    Copy,
+    Clone,
+    Default,
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    Hash,
+    Reflect,
+    Serialize,
+    Deserialize,
 )]
 #[repr(transparent)]
 pub struct Q40p24(pub i64);
@@ -346,7 +356,8 @@ impl fmt::Display for Q40p24 {
         let frac_raw = abs & Q40p24::FRACTION_MASK;
 
         // scale fractional to 6 digits with rounding
-        let mut frac6 = (((frac_raw as i128) * 1_000_000i128) + (1i128 << (Q40p24::FRAC_BITS - 1)))
+        let mut frac6 = (((frac_raw as i128) * 1_000_000i128)
+            + (1i128 << (Q40p24::FRAC_BITS - 1)))
             >> Q40p24::FRAC_BITS;
         if frac6 == 1_000_000 {
             frac6 = 0;

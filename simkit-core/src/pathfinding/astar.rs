@@ -45,7 +45,11 @@ fn heuristic(a: TileId, b: TileId) -> u32 {
 }
 
 /// 8-way deterministic A* over a walkability grid.
-pub fn astar(grid: &Grid2D<bool>, start: TileId, goal: TileId) -> Option<Vec<TileId>> {
+pub fn astar(
+    grid: &Grid2D<bool>,
+    start: TileId,
+    goal: TileId,
+) -> Option<Vec<TileId>> {
     let cfg = grid.cfg;
     if !cfg.in_bounds(start) || !cfg.in_bounds(goal) {
         return None;

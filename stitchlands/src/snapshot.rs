@@ -107,7 +107,6 @@ pub fn load_world_snapshot(
     pawn_index: &mut IdIndex<PawnId>,
     item_index: &mut IdIndex<ItemId>,
     fixture_index: &mut IdIndex<FixtureId>,
-    task_index: &mut IdIndex<TaskId>,
     snapshot: &WorldSnapshot,
 ) {
     // Spawn pawns
@@ -138,113 +137,116 @@ pub fn load_world_snapshot(
     // Spawn fixtures
     for f in snapshot.fixtures.iter() {
         let entity = commands
-            .spawn((crate::WorldTag, Name::new(format!("Fixture#{}", f.fixture.id.0)), f.fixture.clone(), f.pos))
+            .spawn((
+                crate::WorldTag,
+                Name::new(format!("Fixture#{}", f.fixture.id.0)),
+                f.fixture.clone(),
+                f.pos,
+            ))
             .id();
         fixture_index.insert(f.fixture.id, entity);
     }
 }
 
-/*
-#[cfg(test)]
-mod tests {
-    use simkit_core::{grid::TileId, ids::IdIndex, Playback};
-
-    use super::*;
-    use crate::model::components::{Item, Pawn};
-
-    #[derive(Resource)]
-    struct TestSnap(WorldSnapshot);
-
-    fn sys_load_from_snap(
-        mut commands: Commands,
-        mut pawn_idx: ResMut<IdIndex<PawnId>>,
-        mut item_idx: ResMut<IdIndex<ItemId>>,
-        mut zone_idx: ResMut<IdIndex<ZoneId>>,
-        snap: Res<TestSnap>,
-    ) {
-        load_world_snapshot(
-            &mut commands,
-            &mut pawn_idx,
-            &mut item_idx,
-            &mut zone_idx,
-            &snap.0,
-        );
-    }
-
-    #[test]
-    fn world_snapshot_round_trip() {
-        let snap = WorldSnapshot {
-            tick: 7,
-            scenario_seed: Some(42),
-            pawns: vec![
-                PawnEntry {
-                    pawn: Pawn { id: PawnId(1) },
-                    pos: TileId { x: 2, y: 3 },
-                },
-                PawnEntry {
-                    pawn: Pawn { id: PawnId(1000) },
-                    pos: TileId { x: 4, y: 5 },
-                },
-            ],
-            items: vec![ItemEntry {
-                item: Item {
-                    id: ItemId(2000),
-                    kind: "Grain".into(),
-                    qty: 5,
-                },
-                pos: TileId { x: 1, y: 1 },
-            }],
-            zones: vec![ZoneEntry {
-                zone: Zone {
-                    id: ZoneId(3000),
-                    kind: "Stockpile".into(),
-                    rect: ((TileId { x: 0, y: 0 }), (TileId { x: 2, y: 2 })),
-                    filters: vec![],
-                },
-            }],
-        };
-
-        let mut app = App::new();
-        app.init_resource::<IdIndex<PawnId>>()
-            .init_resource::<IdIndex<ItemId>>()
-            .init_resource::<IdIndex<ZoneId>>()
-            .insert_resource(TestSnap(snap.clone()))
-            .insert_resource(Playback {
-                tick: simkit_core::Tick(snap.tick),
-                ..Default::default()
-            })
-            .add_systems(Startup, sys_load_from_snap);
-
-        app.update();
-
-        // Re-extract
-        let world = app.world_mut();
-        let mut pawn_q = world.query::<(&Pawn, &TileId)>();
-        let mut item_q = world.query::<(&Item, &TileId)>();
-        let mut zone_q = world.query::<&Zone>();
-
-        let pawns_vec: Vec<_> = pawn_q.iter(world).map(|(p, pos)| (*p, *pos)).collect();
-        let items_vec: Vec<_> = item_q
-            .iter(world)
-            .map(|(it, pos)| (it.clone(), *pos))
-            .collect();
-        let zones_vec: Vec<_> = zone_q.iter(world).cloned().collect();
-
-        let playback = *world.resource::<Playback>();
-        let new_snap = build_world_snapshot(
-            &playback,
-            snap.scenario_seed,
-            &pawns_vec,
-            &items_vec,
-            &zones_vec,
-        );
-
-        assert_eq!(snap.tick, new_snap.tick);
-        assert_eq!(snap.scenario_seed, new_snap.scenario_seed);
-        assert_eq!(snap.pawns, new_snap.pawns);
-        assert_eq!(snap.items, new_snap.items);
-        assert_eq!(snap.zones, new_snap.zones);
-    }
-}
-
-*/
+// #[cfg(test)]
+// mod tests {
+// use simkit_core::{grid::TileId, ids::IdIndex, Playback};
+//
+// use super::*;
+// use crate::model::components::{Item, Pawn};
+//
+// #[derive(Resource)]
+// struct TestSnap(WorldSnapshot);
+//
+// fn sys_load_from_snap(
+// mut commands: Commands,
+// mut pawn_idx: ResMut<IdIndex<PawnId>>,
+// mut item_idx: ResMut<IdIndex<ItemId>>,
+// mut zone_idx: ResMut<IdIndex<ZoneId>>,
+// snap: Res<TestSnap>,
+// ) {
+// load_world_snapshot(
+// &mut commands,
+// &mut pawn_idx,
+// &mut item_idx,
+// &mut zone_idx,
+// &snap.0,
+// );
+// }
+//
+// #[test]
+// fn world_snapshot_round_trip() {
+// let snap = WorldSnapshot {
+// tick: 7,
+// scenario_seed: Some(42),
+// pawns: vec![
+// PawnEntry {
+// pawn: Pawn { id: PawnId(1) },
+// pos: TileId { x: 2, y: 3 },
+// },
+// PawnEntry {
+// pawn: Pawn { id: PawnId(1000) },
+// pos: TileId { x: 4, y: 5 },
+// },
+// ],
+// items: vec![ItemEntry {
+// item: Item {
+// id: ItemId(2000),
+// kind: "Grain".into(),
+// qty: 5,
+// },
+// pos: TileId { x: 1, y: 1 },
+// }],
+// zones: vec![ZoneEntry {
+// zone: Zone {
+// id: ZoneId(3000),
+// kind: "Stockpile".into(),
+// rect: ((TileId { x: 0, y: 0 }), (TileId { x: 2, y: 2 })),
+// filters: vec![],
+// },
+// }],
+// };
+//
+// let mut app = App::new();
+// app.init_resource::<IdIndex<PawnId>>()
+// .init_resource::<IdIndex<ItemId>>()
+// .init_resource::<IdIndex<ZoneId>>()
+// .insert_resource(TestSnap(snap.clone()))
+// .insert_resource(Playback {
+// tick: simkit_core::Tick(snap.tick),
+// ..Default::default()
+// })
+// .add_systems(Startup, sys_load_from_snap);
+//
+// app.update();
+//
+// Re-extract
+// let world = app.world_mut();
+// let mut pawn_q = world.query::<(&Pawn, &TileId)>();
+// let mut item_q = world.query::<(&Item, &TileId)>();
+// let mut zone_q = world.query::<&Zone>();
+//
+// let pawns_vec: Vec<_> = pawn_q.iter(world).map(|(p, pos)| (*p,
+// *pos)).collect(); let items_vec: Vec<_> = item_q
+// .iter(world)
+// .map(|(it, pos)| (it.clone(), *pos))
+// .collect();
+// let zones_vec: Vec<_> = zone_q.iter(world).cloned().collect();
+//
+// let playback = *world.resource::<Playback>();
+// let new_snap = build_world_snapshot(
+// &playback,
+// snap.scenario_seed,
+// &pawns_vec,
+// &items_vec,
+// &zones_vec,
+// );
+//
+// assert_eq!(snap.tick, new_snap.tick);
+// assert_eq!(snap.scenario_seed, new_snap.scenario_seed);
+// assert_eq!(snap.pawns, new_snap.pawns);
+// assert_eq!(snap.items, new_snap.items);
+// assert_eq!(snap.zones, new_snap.zones);
+// }
+// }
+//

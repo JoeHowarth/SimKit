@@ -16,13 +16,13 @@ use crate::{
     snapshot::build_world_snapshot,
 };
 
+pub mod invariants;
 pub mod model;
 pub mod scenario;
 pub mod snapshot;
 pub mod tasks;
 pub mod toils;
 pub mod world;
-pub mod invariants;
 
 // Resources and markers
 #[derive(Resource, Debug, Clone, Copy)]
@@ -155,7 +155,6 @@ impl Plugin for StitchlandsCorePlugin {
 fn reset_edit_budget(mut budget: ResMut<EditBudget>) {
     budget.remaining = budget.per_tick;
 }
-
 
 fn auto_enter_ingame_if_headless(
     cli: Option<Res<CliOptions>>,

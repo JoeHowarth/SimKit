@@ -2,22 +2,23 @@ use std::path::PathBuf;
 
 use bevy::prelude::*;
 use simkit_core::{grid::TileId, ids::IdIndex};
-
 use stitchlands::{
     invariants::validate_world,
     model::{
         components::{Fixture, Item, ItemRelation, Pawn},
         ids::{FixtureId, ItemId, PawnId},
     },
-    scenario::{model::ScenarioDef},
-    scenario::testutil::{app_with_scenario, load_toml},
+    scenario::{
+        model::ScenarioDef,
+        testutil::{app_with_scenario, load_toml},
+    },
 };
 
 #[test]
 fn scenario_toml_loads_and_passes_invariants() {
     // Load TOML scenario file
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/data/small.toml");
+    let path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/data/small.toml");
     let scenario: ScenarioDef = load_toml(&path);
 
     // Build app, load scenario, then run invariants validation
@@ -43,12 +44,16 @@ fn scenario_toml_loads_and_passes_invariants() {
             }
             (info, p1p.expect("pawn id=1"), p2p.expect("pawn id=2"))
         };
-        assert_eq!(pawns_info.len(), 3, "expected three pawns (Sam, Billy, Ava)");
+        assert_eq!(
+            pawns_info.len(),
+            3,
+            "expected three pawns (Sam, Billy, Ava)"
+        );
         assert_eq!(p1_pos, TileId::new(1, 1));
         assert_eq!(p2_pos, TileId::new(0, 5));
 
         // Fixture: id 1 at (2,2)
-        let (fixtures_info, f1_pos) = {
+        let (_fixtures_info, f1_pos) = {
             let mut qf = world.query::<(&Fixture, &TileId)>();
             let mut info: Vec<(FixtureId, TileId)> = Vec::new();
             let mut f1p = None;
@@ -93,7 +98,11 @@ fn scenario_toml_loads_and_passes_invariants() {
         // Carried items: Item 1 by Pawn 1, Item 2 by Pawn 2
         let (ent1, ent2, ent2002) = {
             let idx = world.resource::<IdIndex<ItemId>>();
-            (idx.get(&ItemId(1)), idx.get(&ItemId(2)), idx.get(&ItemId(2002)))
+            (
+                idx.get(&ItemId(1)),
+                idx.get(&ItemId(2)),
+                idx.get(&ItemId(2002)),
+            )
         };
         let mut qrel = world.query::<&ItemRelation>();
         let rel1 = qrel.get(world, ent1).expect("item#1 relation");
