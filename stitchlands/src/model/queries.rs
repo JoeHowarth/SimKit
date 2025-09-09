@@ -98,6 +98,10 @@ pub type PawnQueryMut<'w, 's, D, F = ()> =
 
 pub trait WorldExt {
     fn get_simid<Id: SimId>(&self, id: &Id) -> (&Id::Type, Entity);
+    fn get_simid_mut<Id: SimId>(
+        &mut self,
+        id: &Id,
+    ) -> (Mut<'_, Id::Type>, Entity);
     fn get_comp_simid<C: Component, Id: SimId>(
         &self,
         id: &Id,
@@ -105,11 +109,19 @@ pub trait WorldExt {
 }
 
 impl WorldExt for World {
+    fn get_simid_mut<Id: SimId>(
+        &mut self,
+        id: &Id,
+    ) -> (Mut<'_, Id::Type>, Entity) {
+        let e = self.resource::<IdIndex<Id>>().get(id);
+        let component = self.get_mut::<Id::Type>(e).unwrap();
+        (component, e)
+    }
+
     fn get_simid<Id: SimId>(&self, id: &Id) -> (&Id::Type, Entity) {
-        let x = self.resource::<IdIndex<Id>>();
-        let e = x.get(id);
-        let entity = self.get::<Id::Type>(e);
-        (entity.unwrap(), e)
+        let e = self.resource::<IdIndex<Id>>().get(id);
+        let component = self.get::<Id::Type>(e).unwrap();
+        (component, e)
     }
 
     fn get_comp_simid<C: Component, Id: SimId>(

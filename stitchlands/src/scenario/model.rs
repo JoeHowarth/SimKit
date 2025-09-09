@@ -79,7 +79,7 @@ pub struct ItemDef {
     pub pos: Option<TileId>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct FixtureDef {
     pub id: Option<u64>,
     pub kind: String,

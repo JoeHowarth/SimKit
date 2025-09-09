@@ -10,13 +10,14 @@ use crate::{
         FixtureQuery,
         PawnQuery,
     },
+    tasks::Job,
     WorldTag,
 };
 
 /// Pawns
 /// Required components: WorldTag, TileId
 #[derive(Component, Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-#[require(WorldTag)]
+#[require(WorldTag, Job)]
 pub struct Pawn {
     pub id: PawnId,
     pub inventory: Inventory,

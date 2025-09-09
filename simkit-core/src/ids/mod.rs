@@ -12,7 +12,9 @@ pub trait SimId:
     fn to_u64(self) -> u64;
 }
 
-pub trait HasSimId: Component {
+pub trait HasSimId:
+    Component<Mutability = bevy::ecs::component::Mutable>
+{
     type Id: SimId;
     fn id(&self) -> Self::Id;
 }

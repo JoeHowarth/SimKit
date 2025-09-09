@@ -14,6 +14,7 @@ use super::model::{MapSize, ScenarioDef};
 use crate::{
     model::{components::*, ids::*},
     snapshot::load_world_snapshot,
+    tasks::WorkPriority,
     world::WorldGrid,
     CliOptions,
     RngResource,
@@ -386,6 +387,7 @@ fn spawn_pawns_from_def(
                     sleep: p.sleep.unwrap_or(100).into(),
                     hunger: p.hunger.unwrap_or(100).into(),
                 },
+                WorkPriority(p.priorities.clone()),
                 pos,
             ))
             .id();

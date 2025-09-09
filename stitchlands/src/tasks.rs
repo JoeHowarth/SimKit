@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 
 use bevy::{
+    ecs::schedule::ScheduleLabel,
     platform::collections::{HashMap, HashSet},
     prelude::*,
 };
@@ -20,16 +21,31 @@ use crate::{
         build_sleep_plan,
         closer_option_item_locator,
         step_jobs,
+        CompletedTask,
         ToilKind,
     },
 };
 
-pub struct TaskPlugin;
+pub struct TaskPlugin<S = FixedUpdate> {
+    pub(crate) schedule: S,
+}
 
-impl Plugin for TaskPlugin {
+impl Default for TaskPlugin<FixedUpdate> {
+    fn default() -> Self {
+        Self {
+            schedule: FixedUpdate,
+        }
+    }
+}
+
+impl<S: ScheduleLabel + Clone> Plugin for TaskPlugin<S> {
     fn build(&self, app: &mut App) {
         app.init_resource::<TaskBoard>()
-            .add_systems(FixedUpdate, (step_jobs, schedule_pawns));
+            .add_event::<CompletedTask>()
+            .add_systems(
+                self.schedule.clone(),
+                (schedule_pawns, step_jobs).chain(),
+            );
     }
 }
 
@@ -66,22 +82,23 @@ impl_hassimid!(Task, TaskId);
 #[derive(Component)]
 pub struct WorkPriority(pub Vec<TaskSpecKind>);
 
-#[derive(Component)]
+#[derive(Component, Debug, Default)]
 pub struct Job {
     pub kind: JobKind,
     pub current_toil: Option<ToilKind>,
     pub plan: VecDeque<ToilKind>,
 }
 
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
 pub enum JobKind {
     Task(TaskId),
     Sleep,
     Eat,
+    #[default]
     None,
 }
 
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum TaskStatus {
     Pending,
     Assigned(PawnId),
@@ -165,14 +182,19 @@ fn schedule_pawns(
     items: ItemQuery<&ItemRelation>,
     fixture_tile_index: Res<TileMapIndex<FixtureId>>,
 ) {
+    dbg!("schedule_pawns");
     // TODO: use a stable ordering of pawns
     let mut pawns = pawns.iter_mut().collect::<Vec<_>>();
     pawns.sort_by_key(|(pawn, _, _, _)| pawn.id.to_u64());
 
     for (pawn, pos, work_priority, mut job) in pawns {
+        println!("Pawn: {:?}, Job: {:?}", pawn.id, job.kind);
+
         // If job is running, check if it should be preempted
         if job.kind != JobKind::None {
             if let Some(preempt) = should_preempt(pawn, job.kind) {
+                println!("Preempting job: {:?}", job);
+
                 // If job should be preempted and it's not the same job,
                 // => preempt it
                 if let JobKind::Task(task_id) = &job.kind {
@@ -192,6 +214,10 @@ fn schedule_pawns(
                         error!("Failed to build plan for preempted job: {}", e)
                     })
                 else {
+                    println!(
+                        "Failed to build plan for preempted job: {:?}",
+                        job
+                    );
                     continue;
                 };
 
@@ -200,6 +226,7 @@ fn schedule_pawns(
                     plan,
                     current_toil: None,
                 };
+                println!("Preempted job: {:?}", job);
             }
             continue;
         }
@@ -310,10 +337,15 @@ fn choose_next_job(
 ) -> Job {
     // Check if needs are urgent
     if let Some(job) = next_job_is_needs(pawn, pos, fixtures, items) {
+        println!("Next job is needs: {:?}", job);
         return job;
     }
 
+    println!("Next job is not needs");
+
     for kind in work_priority.0.iter() {
+        println!("Next job is looking for kind: {:?}", kind);
+
         // Find highest priority task for this kind
         let mut tasks = pending
             .pending_tasks_by_kind(kind)
