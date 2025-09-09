@@ -32,3 +32,6 @@
 
 - Use concise, conventional prefixes: `feat:`, `fix:`, `tests:`, `chore:`, `refactor:`, `docs:` (e.g., `tests: add scenario assertions`).
 - CI must pass: fmt, clippy, build, and tests (`.github/workflows`).
+
+
+After each feature, run clippy, fmt and commit 

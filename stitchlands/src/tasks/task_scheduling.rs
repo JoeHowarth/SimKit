@@ -13,190 +13,10 @@ use simkit_core::{
     impl_hassimid,
 };
 
-use crate::{
-    model::*,
-    toils::{
-        build_eat_plan,
-        build_plan_for_task,
-        build_sleep_plan,
-        closer_option_item_locator,
-        step_jobs,
-        CompletedTask,
-        ToilKind,
-    },
-};
+use super::*;
+use crate::model::*;
 
-pub struct TaskPlugin<S = FixedUpdate> {
-    pub(crate) schedule: S,
-}
-
-impl Default for TaskPlugin<FixedUpdate> {
-    fn default() -> Self {
-        Self {
-            schedule: FixedUpdate,
-        }
-    }
-}
-
-impl<S: ScheduleLabel + Clone> Plugin for TaskPlugin<S> {
-    fn build(&self, app: &mut App) {
-        app.init_resource::<TaskBoard>()
-            .add_event::<CompletedTask>()
-            .add_systems(
-                self.schedule.clone(),
-                (schedule_pawns, step_jobs, mark_tasks_as_done).chain(),
-            );
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
-pub enum TaskSpecKind {
-    Harvest,
-    Plant,
-}
-
-impl TaskSpec {
-    pub fn kind(&self) -> TaskSpecKind {
-        match self {
-            TaskSpec::Harvest(_) => TaskSpecKind::Harvest,
-            TaskSpec::Plant(_, _) => TaskSpecKind::Plant,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TaskSpec {
-    Harvest(FixtureId),
-    Plant(TileId, ItemKind),
-}
-
-// TODO: should this be a component?
-#[derive(Component, Debug, Clone, PartialEq, Eq)]
-pub struct Task {
-    pub id: TaskId,
-    pub spec: TaskSpec,
-    pub status: TaskStatus,
-}
-
-impl_hassimid!(Task, TaskId);
-
-#[derive(Component)]
-pub struct WorkPriority(pub Vec<TaskSpecKind>);
-
-#[derive(Component, Debug, Default)]
-pub struct Job {
-    pub kind: JobKind,
-    pub current_toil: Option<ToilKind>,
-    pub plan: VecDeque<ToilKind>,
-}
-
-#[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
-pub enum JobKind {
-    Task(TaskId, TaskSpecKind),
-    Sleep,
-    Eat,
-    #[default]
-    None,
-}
-
-#[derive(PartialEq, Eq, Clone, Copy, Debug)]
-pub enum TaskStatus {
-    Pending,
-    Assigned(PawnId),
-    Done,
-    Cancelled,
-}
-
-#[derive(Resource, Debug)]
-pub struct TaskBoard {
-    pub index: IdIndex<TaskId>,
-    pub tasks: HashMap<TaskId, Task>,
-    pub pending_tasks: HashMap<TaskSpecKind, HashSet<TaskId>>,
-}
-
-impl Default for TaskBoard {
-    fn default() -> Self {
-        Self {
-            index: IdIndex::default(),
-            tasks: HashMap::new(),
-            pending_tasks: HashMap::from_iter([
-                (TaskSpecKind::Harvest, HashSet::new()),
-                (TaskSpecKind::Plant, HashSet::new()),
-            ]),
-        }
-    }
-}
-
-impl TaskBoard {
-    /// Add a never before seen task to the pending state
-    pub fn add_task(&mut self, spec: TaskSpec) -> TaskId {
-        let id = self.index.alloc(None);
-        let kind = spec.kind();
-        let task = Task {
-            id,
-            spec,
-            status: TaskStatus::Pending,
-        };
-
-        self.tasks.insert(id, task);
-        self.pending_tasks.entry(kind).or_default().insert(id);
-        id
-    }
-
-    /// Move a task to the assigned state
-    fn set_assigned(&mut self, id: TaskId, pawn_id: PawnId) {
-        let task = self.tasks.get_mut(&id).unwrap();
-        task.status = TaskStatus::Assigned(pawn_id);
-        self.pending_tasks
-            .get_mut(&task.spec.kind())
-            .unwrap()
-            .remove(&id);
-    }
-
-    /// Move a task back to the pending state
-    /// Must only be called on tasks that are already assigned
-    fn return_to_pending(&mut self, id: TaskId) {
-        let task = self.tasks.get_mut(&id).unwrap();
-        task.status = TaskStatus::Pending;
-        self.pending_tasks
-            .get_mut(&task.spec.kind())
-            .unwrap()
-            .insert(id);
-    }
-
-    fn pending_tasks_by_kind(
-        &self,
-        kind: &TaskSpecKind,
-    ) -> impl Iterator<Item = &Task> {
-        self.pending_tasks
-            .get(kind)
-            .unwrap()
-            .iter()
-            .map(|id| self.tasks.get(id).unwrap())
-    }
-
-    pub fn tasks_by_status(
-        &self,
-        status: TaskStatus,
-    ) -> impl Iterator<Item = &Task> {
-        self.tasks
-            .values()
-            .filter(move |task| task.status == status)
-    }
-}
-
-fn mark_tasks_as_done(
-    mut task_board: ResMut<TaskBoard>,
-    mut completed_tasks: EventReader<CompletedTask>,
-) {
-    for completed_task in completed_tasks.read() {
-        info!("Marking task as done: {:?}", completed_task.0);
-        let task = task_board.tasks.get_mut(&completed_task.0).unwrap();
-        task.status = TaskStatus::Done;
-    }
-}
-
-fn schedule_pawns(
+pub(super) fn schedule_pawns(
     mut pawns: Query<(&Pawn, &TileId, &WorkPriority, &mut Job)>,
     mut task_board: ResMut<TaskBoard>,
     fixtures: FixtureQuery<&TileId>,
@@ -212,9 +32,13 @@ fn schedule_pawns(
         // If job is running, check if it should be preempted
         if job.kind != JobKind::None {
             if let Some(preempt) = should_preempt(pawn, job.kind) {
-                debug!("Considering preemption: current={:?}, new={:?}", job.kind, preempt);
+                debug!(
+                    "Considering preemption: current={:?}, new={:?}",
+                    job.kind, preempt
+                );
 
-                // Build the preempt plan first; only switch if planning succeeds
+                // Build the preempt plan first; only switch if planning
+                // succeeds
                 match preempt
                     .build_plan(
                         pawn,
@@ -224,10 +48,12 @@ fn schedule_pawns(
                         &fixtures,
                         &fixture_tile_index,
                     )
-                    .inspect_err(|e| error!("Failed to build preempt plan: {}", e))
-                {
+                    .inspect_err(|e| {
+                        error!("Failed to build preempt plan: {}", e)
+                    }) {
                     Ok(plan) => {
-                        // Return the current task to pending after we know the new plan is viable
+                        // Return the current task to pending after we know the
+                        // new plan is viable
                         if let JobKind::Task(task_id, _) = &job.kind {
                             task_board.return_to_pending(*task_id);
                         }
@@ -241,7 +67,8 @@ fn schedule_pawns(
                     }
                     Err(_) => {
                         warn!(
-                            "Preemption planning failed; keeping current job: {:?}",
+                            "Preemption planning failed; keeping current job: \
+                             {:?}",
                             job.kind
                         );
                     }
@@ -476,92 +303,7 @@ impl TaskSpec {
     }
 }
 
-pub fn neartest_item_pos(
-    pawn: &Pawn,
-    pawn_pos: &TileId,
-    item_kind: &ItemKind,
-    items: &ItemQuery<&ItemRelation>,
-    fixtures: &FixtureQuery<&TileId>,
-) -> Option<TileId> {
-    if pawn.inventory.find(*item_kind).is_some() {
-        return Some(*pawn_pos);
-    }
-
-    let on_ground = nearest_item_on_ground(item_kind, pawn_pos, items);
-    let fixture = nearest_fixture_with_item(item_kind, pawn_pos, fixtures);
-
-    let (item_id, _dist) = closer_option_item_locator(on_ground, fixture)?;
-    Some(match items.get(&item_id).1 {
-        ItemRelation::CarriedBy(_) => *pawn_pos,
-        ItemRelation::InFixture(fixture_id) => *fixtures.get(fixture_id).1,
-        ItemRelation::OnGround(tile_id) => *tile_id,
-    })
-}
-
 fn distance_to_score(distance: impl Into<Q40p24>) -> Q40p24 {
     let distance = distance.into();
     Q40p24::ONE / (Q40p24::ONE + distance)
-}
-
-pub fn manhattan(a: TileId, b: TileId) -> u32 {
-    ((a.x - b.x).abs() + (a.y - b.y).abs()) as u32
-}
-
-pub fn nearest_item_on_ground(
-    target_kind: &ItemKind,
-    current_pos: &TileId,
-    items: &ItemQuery<&ItemRelation>,
-) -> Option<(ItemId, u32)> {
-    // find nearest item on ground that matches item
-    let mut nearest = None;
-    for (item, item_rel) in items.query.iter() {
-        let ItemRelation::OnGround(item_pos) = item_rel else {
-            continue;
-        };
-
-        if item.kind == *target_kind {
-            let distance = manhattan(*current_pos, *item_pos);
-            if distance
-                > nearest
-                    .as_ref()
-                    .map(|(_, distance)| *distance)
-                    .unwrap_or(u32::MAX)
-            {
-                continue;
-            }
-            nearest = Some((item.id, distance));
-        }
-    }
-    nearest
-}
-
-pub fn nearest_fixture_with_item(
-    target_kind: &ItemKind,
-    current_pos: &TileId,
-    fixtures: &FixtureQuery<&TileId>,
-) -> Option<(ItemId, u32)> {
-    // find nearest fixture that contains item
-    let mut nearest = None;
-    for (fixture, fixture_pos) in fixtures.query.iter() {
-        let Some(loc) = fixture
-            .inventory
-            .find(*target_kind)
-            .map(|id| (id, *current_pos))
-        else {
-            continue;
-        };
-
-        let distance = manhattan(*current_pos, *fixture_pos);
-        if distance
-            > nearest
-                .as_ref()
-                .map(|(_, distance)| *distance)
-                .unwrap_or(u32::MAX)
-        {
-            continue;
-        }
-
-        nearest = Some((loc.0, distance));
-    }
-    nearest
 }

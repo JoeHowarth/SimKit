@@ -21,7 +21,6 @@ pub mod model;
 pub mod scenario;
 pub mod snapshot;
 pub mod tasks;
-pub mod toils;
 pub mod world;
 
 // Resources and markers

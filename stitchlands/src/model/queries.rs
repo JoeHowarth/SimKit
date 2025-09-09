@@ -5,7 +5,7 @@ use bevy::{
     },
     prelude::*,
 };
-use simkit_core::ids::{HasSimId, IdIndex, SimId};
+use simkit_core::{grid::TileId, ids::{HasSimId, IdIndex, SimId}};
 
 use super::*;
 
@@ -131,5 +131,109 @@ impl WorldExt for World {
         let (entity, e) = self.get_simid(id);
         let component = self.get::<C>(e).unwrap();
         (entity, e, component)
+    }
+}
+
+
+pub fn neartest_item_pos(
+    pawn: &Pawn,
+    pawn_pos: &TileId,
+    item_kind: &ItemKind,
+    items: &ItemQuery<&ItemRelation>,
+    fixtures: &FixtureQuery<&TileId>,
+) -> Option<TileId> {
+    if pawn.inventory.find(*item_kind).is_some() {
+        return Some(*pawn_pos);
+    }
+
+    let on_ground = nearest_item_on_ground(item_kind, pawn_pos, items);
+    let fixture = nearest_fixture_with_item(item_kind, pawn_pos, fixtures);
+
+    let (item_id, _dist) = closer_option_item_locator(on_ground, fixture)?;
+    Some(match items.get(&item_id).1 {
+        ItemRelation::CarriedBy(_) => *pawn_pos,
+        ItemRelation::InFixture(fixture_id) => *fixtures.get(fixture_id).1,
+        ItemRelation::OnGround(tile_id) => *tile_id,
+    })
+}
+
+pub fn manhattan(a: TileId, b: TileId) -> u32 {
+    ((a.x - b.x).abs() + (a.y - b.y).abs()) as u32
+}
+
+pub fn nearest_item_on_ground(
+    target_kind: &ItemKind,
+    current_pos: &TileId,
+    items: &ItemQuery<&ItemRelation>,
+) -> Option<(ItemId, u32)> {
+    // find nearest item on ground that matches item
+    let mut nearest = None;
+    for (item, item_rel) in items.query.iter() {
+        let ItemRelation::OnGround(item_pos) = item_rel else {
+            continue;
+        };
+
+        if item.kind == *target_kind {
+            let distance = manhattan(*current_pos, *item_pos);
+            if distance
+                > nearest
+                    .as_ref()
+                    .map(|(_, distance)| *distance)
+                    .unwrap_or(u32::MAX)
+            {
+                continue;
+            }
+            nearest = Some((item.id, distance));
+        }
+    }
+    nearest
+}
+
+pub fn nearest_fixture_with_item(
+    target_kind: &ItemKind,
+    current_pos: &TileId,
+    fixtures: &FixtureQuery<&TileId>,
+) -> Option<(ItemId, u32)> {
+    // find nearest fixture that contains item
+    let mut nearest = None;
+    for (fixture, fixture_pos) in fixtures.query.iter() {
+        let Some(loc) = fixture
+            .inventory
+            .find(*target_kind)
+            .map(|id| (id, *current_pos))
+        else {
+            continue;
+        };
+
+        let distance = manhattan(*current_pos, *fixture_pos);
+        if distance
+            > nearest
+                .as_ref()
+                .map(|(_, distance)| *distance)
+                .unwrap_or(u32::MAX)
+        {
+            continue;
+        }
+
+        nearest = Some((loc.0, distance));
+    }
+    nearest
+}
+
+pub fn closer_option_item_locator(
+    a: Option<(ItemId, u32)>,
+    b: Option<(ItemId, u32)>,
+) -> Option<(ItemId, u32)> {
+    match (a, b) {
+        (Some(a), Some(b)) => {
+            if a.1 < b.1 {
+                Some(a)
+            } else {
+                Some(b)
+            }
+        }
+        (Some(a), None) => Some(a),
+        (None, Some(b)) => Some(b),
+        (None, None) => None,
     }
 }
