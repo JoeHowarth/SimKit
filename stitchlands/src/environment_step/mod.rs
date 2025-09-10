@@ -1,7 +1,7 @@
 use bevy::prelude::*;
-use simkit_core::{fixed_point::Q40p24, KitSystemSet};
+use simkit_core::{KitSystemSet, fixed_point::Q40p24};
 
-use crate::{model::*, StepSystemLabel};
+use crate::{StepSystemLabel, model::*};
 
 pub struct EnvironmentStepPlugin;
 
@@ -23,13 +23,9 @@ fn decrement_needs(mut pawns: Query<&mut Pawn>) {
     }
 }
 
-fn decrement_harvest_countdown(mut fixtures: Query<&mut Fixture>) {
+fn decrement_harvest_countdown(mut fixtures: Query<&mut HarvestCountdown>) {
     debug!("Decrementing harvest countdown");
-    for mut fixture in fixtures.iter_mut() {
-        if fixture.harvest_countdown.is_none() {
-            continue;
-        }
-        let harvest_countdown = fixture.harvest_countdown.as_mut().unwrap();
-        *harvest_countdown = harvest_countdown.saturating_sub(1);
+    for mut harvest_countdown in fixtures.iter_mut() {
+        harvest_countdown.0 = harvest_countdown.0.saturating_sub(1);
     }
 }

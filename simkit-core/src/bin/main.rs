@@ -3,9 +3,9 @@ use std::collections::VecDeque;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use simkit_core::{
-    simulation::{SimPlugin, Simulation},
     KitCorePlugin,
     Tick,
+    simulation::{SimPlugin, Simulation},
 };
 
 struct MySimulation;

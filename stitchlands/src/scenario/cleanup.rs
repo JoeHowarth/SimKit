@@ -3,8 +3,8 @@ use simkit_core::{grid::index::TileMapIndex, ids::IdIndex};
 
 use super::loader::LoadedScenarioMeta;
 use crate::{
-    model::{ids::*, world::WorldGrid},
     WorldTag,
+    model::{ids::*, world::WorldGrid},
 };
 
 pub fn cleanup_world(

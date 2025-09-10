@@ -170,11 +170,7 @@ impl Div for Q40p24 {
         let needs_adjust = (r.abs() << 1) >= den.abs();
         let positive_quot = (num >= 0 && den >= 0) || (num < 0 && den < 0);
         let adj = if needs_adjust {
-            if positive_quot {
-                1
-            } else {
-                -1
-            }
+            if positive_quot { 1 } else { -1 }
         } else {
             0
         };

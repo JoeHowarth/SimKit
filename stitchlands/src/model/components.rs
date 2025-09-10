@@ -5,13 +5,13 @@ use serde::{Deserialize, Serialize};
 use simkit_core::{fixed_point::Q40p24, grid::TileId, impl_hassimid};
 
 use crate::{
+    WorldTag,
     model::{
-        ids::{FixtureId, ItemId, PawnId},
         FixtureQuery,
         PawnQuery,
+        ids::{FixtureId, ItemId, PawnId},
     },
     tasks::Job,
-    WorldTag,
 };
 
 /// Pawns
@@ -49,11 +49,7 @@ impl Inventory {
         item_kind: ItemKind,
     ) -> impl Iterator<Item = ItemId> + 'a {
         self.0.iter().filter_map(move |(id, kind)| {
-            if *kind == item_kind {
-                Some(*id)
-            } else {
-                None
-            }
+            if *kind == item_kind { Some(*id) } else { None }
         })
     }
 }
@@ -170,8 +166,19 @@ pub struct Fixture {
     pub id: FixtureId,
     pub kind: FixtureKind,
     pub inventory: Inventory,
-    pub harvest_countdown: Option<u32>,
 }
+
+/// How many work units are left to complete the build
+#[derive(
+    Component, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize,
+)]
+pub struct BuildWorkLeft(pub u32);
+
+/// Ticks until harvest is ready
+#[derive(
+    Component, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize,
+)]
+pub struct HarvestCountdown(pub u32);
 
 impl FromStr for FixtureKind {
     type Err = String;
@@ -181,7 +188,6 @@ impl FromStr for FixtureKind {
             "SleepingPad" => Ok(Self::SleepingPad),
             "Stockpile" => Ok(Self::Stockpile),
             "BerryBush" => Ok(Self::BerryBush),
-            "Untyped" => Ok(Self::Untyped(reset.to_string())),
             _ => Err(format!("Invalid FixtureKind: {s}")),
         }
     }
@@ -189,13 +195,13 @@ impl FromStr for FixtureKind {
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum FixtureKind {
+    ConstructionSite,
     SleepingPad,
     Stockpile,
     BerryBush,
-    Untyped(String),
+    Cabin,
     // Field,
     // Tree,
-    // House,
 }
 
 impl_hassimid!(Pawn, PawnId);

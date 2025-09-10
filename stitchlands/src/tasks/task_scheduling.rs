@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use bevy::prelude::*;
 use simkit_core::{
     fixed_point::Q40p24,
-    grid::{index::TileMapIndex, TileId},
+    grid::{TileId, index::TileMapIndex},
     ids::SimId,
 };
 
@@ -12,7 +12,7 @@ use super::*;
 pub(super) fn schedule_pawns(
     mut pawns: Query<(&Pawn, &TileId, &WorkPriority, &mut Job)>,
     mut task_board: ResMut<TaskBoard>,
-    fixtures: FixtureQuery<&TileId>,
+    fixtures: FixtureQuery,
     items: ItemQuery<&ItemRelation>,
     fixture_tile_index: Res<TileMapIndex<FixtureId>>,
 ) {
@@ -119,7 +119,7 @@ fn should_preempt(pawn: &Pawn, current_job: JobKind) -> Option<JobKind> {
 fn next_job_is_needs(
     pawn: &Pawn,
     pos: &TileId,
-    fixtures: &FixtureQuery<&TileId>,
+    fixtures: &FixtureQuery,
     items: &ItemQuery<&ItemRelation>,
 ) -> Option<Job> {
     // Sleep and eat threshold are lower than when we have a job
@@ -130,7 +130,7 @@ fn next_job_is_needs(
                     kind: JobKind::Eat,
                     plan,
                     current_toil: None,
-                })
+                });
             }
             Err(e) => {
                 warn!("Eat auto job failed to plan: {e}");
@@ -145,7 +145,7 @@ fn next_job_is_needs(
                     kind: JobKind::Sleep,
                     plan,
                     current_toil: None,
-                })
+                });
             }
             Err(e) => {
                 warn!("Sleep auto job failed to plan: {e}");
@@ -161,7 +161,7 @@ fn choose_next_job(
     pawn: &Pawn,
     pos: &TileId,
     work_priority: &WorkPriority,
-    fixtures: &FixtureQuery<&TileId>,
+    fixtures: &FixtureQuery,
     items: &ItemQuery<&ItemRelation>,
     fixture_tile_index: &TileMapIndex<FixtureId>,
 ) -> Job {
@@ -233,7 +233,7 @@ impl TaskSpec {
         &self,
         pawn: &Pawn,
         pos: &TileId,
-        fixtures: &FixtureQuery<&TileId>,
+        fixtures: &FixtureQuery,
         items: &ItemQuery<&ItemRelation>,
     ) -> Option<Q40p24> {
         match self {
@@ -247,18 +247,15 @@ impl TaskSpec {
     fn harvest_priority(
         &self,
         pos: &TileId,
-        fixtures: &FixtureQuery<&TileId>,
+        fixtures: &FixtureQuery,
     ) -> Option<Q40p24> {
         let TaskSpec::Harvest(fixture_id) = self else {
             panic!("Harvest priority called for non-harvest task");
         };
 
-        let (fixture, fixture_pos) = fixtures.get(fixture_id);
-        // let (fixture, fixture_pos) =
-        // fixtures.get(fixture_index.get(fixture_id)).unwrap();
-        if fixture.harvest_countdown.is_none()
-            || fixture.harvest_countdown.unwrap() > 0
-        {
+        let (fixture, (fixture_pos, harvest_countdown, _)) =
+            fixtures.get(fixture_id);
+        if harvest_countdown.is_none() || harvest_countdown.unwrap().0 > 0 {
             return None;
         }
 
@@ -271,7 +268,7 @@ impl TaskSpec {
         pawn: &Pawn,
         pawn_pos: &TileId,
         items: &ItemQuery<&ItemRelation>,
-        fixtures: &FixtureQuery<&TileId>,
+        fixtures: &FixtureQuery,
     ) -> Option<Q40p24> {
         let TaskSpec::Plant(fixture_pos, item_kind) = self else {
             panic!("Plant priority called for non-plant task");

@@ -6,12 +6,12 @@ use bevy::{
 };
 use serde::{Deserialize, Serialize};
 use simkit_core::{
-    grid::{index::TileMapIndex, TileId},
+    grid::{TileId, index::TileMapIndex},
     ids::IdIndex,
     impl_hassimid,
 };
 
-use crate::{model::*, StepSystemLabel};
+use crate::{StepSystemLabel, model::*};
 
 pub mod job_execution;
 pub mod job_planning;
@@ -30,17 +30,6 @@ pub struct CompletedTask(pub TaskId);
 pub struct NewTask(pub TaskSpec);
 
 pub struct TaskPlugin;
-// pub struct TaskPlugin<S = FixedUpdate> {
-//     pub(crate) schedule: S,
-// }
-
-// impl Default for TaskPlugin<FixedUpdate> {
-//     fn default() -> Self {
-//         Self {
-//             schedule: FixedUpdate,
-//         }
-//     }
-// }
 
 impl Plugin for TaskPlugin {
     fn build(&self, app: &mut App) {
@@ -59,6 +48,7 @@ impl Plugin for TaskPlugin {
 pub enum TaskSpecKind {
     Harvest,
     Plant,
+    Build,
 }
 
 impl TaskSpec {
@@ -66,14 +56,25 @@ impl TaskSpec {
         match self {
             TaskSpec::Harvest(_) => TaskSpecKind::Harvest,
             TaskSpec::Plant(_, _) => TaskSpecKind::Plant,
+            TaskSpec::Build(_) => TaskSpecKind::Build,
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TaskSpec {
     Harvest(FixtureId),
     Plant(TileId, ItemKind),
+    Build(BuildingSpec),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuildingSpec {
+    pub top_left: TileId,
+    pub dim: UVec2,
+    pub fixture_kind: FixtureKind,
+    pub required_items: Vec<(ItemKind, u32)>,
+    pub work_units: u32,
 }
 
 // TODO: should this be a component?
@@ -247,6 +248,6 @@ fn handle_new_task(
 ) {
     for new_task in new_tasks.read() {
         debug!("Adding new task: {:?}", new_task.0);
-        task_board.add_task(new_task.0);
+        task_board.add_task(new_task.0.clone());
     }
 }

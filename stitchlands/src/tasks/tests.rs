@@ -7,7 +7,7 @@ use crate::{
         model::{FixtureDef, MapDef, MapSize, PawnDef, ScenarioDef},
         testutil::app_with_scenario,
     },
-    tasks::{job_planning::manhattan_path, TaskSpecKind, TaskStatus},
+    tasks::{TaskSpecKind, TaskStatus, job_planning::manhattan_path},
 };
 
 #[test]
@@ -160,8 +160,9 @@ fn test_build_plan_for_task() {
         assert!(pawn.inventory.of_kind(ItemKind::Berry).next().is_some());
 
         // Fixture harvest cooldown reset
-        let (fixture, _e) = world.get_simid(&FixtureId(2));
-        assert_eq!(fixture.harvest_countdown, Some(100));
+        let (_, _, harvest_countdown) =
+            world.get_comp_simid::<HarvestCountdown, _>(&FixtureId(2));
+        assert_eq!(harvest_countdown, &HarvestCountdown(100));
     }
 }
 
@@ -264,8 +265,10 @@ fn test_harvest_then_plant() {
         assert!(matches!(job.kind, JobKind::None));
         assert!(pawn.inventory.of_kind(ItemKind::Berry).next().is_some());
 
-        let (fixture, _fe) = app.world().get_simid(&FixtureId(2));
-        assert_eq!(fixture.harvest_countdown, Some(100));
+        let (_, _, harvest_countdown) = app
+            .world()
+            .get_comp_simid::<HarvestCountdown, _>(&FixtureId(2));
+        assert_eq!(harvest_countdown, &HarvestCountdown(100));
     }
 
     app.update();
@@ -327,8 +330,9 @@ fn test_harvest_then_plant() {
     }
 }
 
-pub fn fixture_cd(app: &App, fid: FixtureId) -> Option<u32> {
-    app.world().get_simid(&fid).0.harvest_countdown
+pub fn fixture_cd(app: &App, fid: FixtureId) -> Option<HarvestCountdown> {
+    let e = app.world().get_simid(&fid).1;
+    app.world().entity(e).get::<HarvestCountdown>().copied()
 }
 pub fn has_fixture_at(app: &App, pos: TileId) -> bool {
     app.world()
@@ -498,7 +502,7 @@ fn test_multi_harvest_and_plant() {
         let (_tile, pawn, job) = q.get(app.world(), e).unwrap();
         assert!(matches!(job.kind, JobKind::None));
         assert!(pawn.inventory.of_kind(ItemKind::Berry).next().is_some());
-        assert_eq!(fixture_cd(&app, last_harvest), Some(100));
+        assert_eq!(fixture_cd(&app, last_harvest), Some(HarvestCountdown(100)));
     }
 
     // 2) Next assignment becomes Plant (now feasible). Should choose (3,3)
@@ -565,7 +569,7 @@ fn test_multi_harvest_and_plant() {
         }
     };
     app.update();
-    assert_eq!(fixture_cd(&app, last_harvest), Some(100));
+    assert_eq!(fixture_cd(&app, last_harvest), Some(HarvestCountdown(100)));
 
     // 4) Plant the second target at (0,1)
     app.update();
@@ -621,14 +625,14 @@ fn test_multi_harvest_and_plant() {
         }
     };
     app.update();
-    assert_eq!(fixture_cd(&app, last_harvest), Some(100));
+    assert_eq!(fixture_cd(&app, last_harvest), Some(HarvestCountdown(100)));
 
     // 6) Eventually F1 should become ready and be harvested.
     // Note: Current behavior lacks countdown ticking; this will fail until
     // it's implemented.
     step_until(
         &mut app,
-        |app| fixture_cd(app, FixtureId(1)) == Some(100),
+        |app| fixture_cd(app, FixtureId(1)) == Some(HarvestCountdown(100)),
         33,
     );
 

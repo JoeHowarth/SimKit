@@ -3,12 +3,12 @@ use std::collections::VecDeque;
 use bevy::prelude::*;
 use simkit_core::{
     fixed_point::Q40p24,
-    grid::{index::TileMapIndex, TileId},
+    grid::{TileId, index::TileMapIndex},
 };
 
 use crate::{
     model::*,
-    tasks::{manhattan, CompletedTask, Job, JobKind, ToilKind, ToilResult},
+    tasks::{CompletedTask, Job, JobKind, ToilKind, ToilResult, manhattan},
 };
 
 pub fn step_jobs(
@@ -16,7 +16,11 @@ pub fn step_jobs(
     mut completed_tasks: EventWriter<CompletedTask>,
     mut pawns: PawnQueryMut<(&mut TileId, &mut Job)>,
     mut items: ItemQueryMut<&mut ItemRelation>,
-    mut fixtures: FixtureQueryMut<&TileId>,
+    mut fixtures: FixtureQueryMut<(
+        &TileId,
+        Option<&mut HarvestCountdown>,
+        Option<&mut BuildWorkLeft>,
+    )>,
     mut pawn_tile_map_index: ResMut<TileMapIndex<PawnId>>,
     mut item_tile_map_index: ResMut<TileMapIndex<ItemId>>,
     mut fixture_tile_index: ResMut<TileMapIndex<FixtureId>>,
@@ -83,7 +87,11 @@ pub fn step_toil(
     pawn: &mut Pawn,
     pawn_tile: &mut TileId,
     items: &mut ItemQueryMut<&mut ItemRelation>,
-    fixtures: &mut FixtureQueryMut<&TileId>,
+    fixtures: &mut FixtureQueryMut<(
+        &TileId,
+        Option<&mut HarvestCountdown>,
+        Option<&mut BuildWorkLeft>,
+    )>,
     pawn_tile_map_index: &mut ResMut<TileMapIndex<PawnId>>,
     item_tile_map_index: &mut ResMut<TileMapIndex<ItemId>>,
     fixture_tile_index: &mut ResMut<TileMapIndex<FixtureId>>,
@@ -140,7 +148,7 @@ pub fn step_toil(
                     ));
                 }
                 ItemRelation::InFixture(fixture_id) => {
-                    *fixtures.get(fixture_id).1
+                    *fixtures.get(fixture_id).1.0
                 }
                 ItemRelation::OnGround(tile_id) => *tile_id,
             };
@@ -213,9 +221,9 @@ pub fn step_toil(
                         id: fixture_id,
                         kind: FixtureKind::BerryBush,
                         inventory: Inventory::default(),
-                        harvest_countdown: Some(100),
                     },
                     *target_tile_id,
+                    HarvestCountdown(100),
                     Name::new(format!("BerryBush#{}", fixture_id.0)),
                 ))
                 .id();
@@ -225,7 +233,8 @@ pub fn step_toil(
             ToilResult::Done
         }
         ToilKind::Harvest { fixture_id } => {
-            let (mut fixture, fixture_tile) = fixtures.get_mut(fixture_id);
+            let (mut fixture, (fixture_tile, harvest_countdown, _)) =
+                fixtures.get_mut(fixture_id);
 
             // Check preconditions
             assert!(
@@ -235,15 +244,17 @@ pub fn step_toil(
                 pawn_tile,
                 fixture_tile
             );
+            assert!(harvest_countdown.is_some());
+            let mut harvest_countdown = harvest_countdown.unwrap();
             assert_eq!(fixture.kind, FixtureKind::BerryBush);
             assert_eq!(
-                fixture.harvest_countdown,
-                Some(0),
+                harvest_countdown.as_ref(),
+                &HarvestCountdown(0),
                 "Fixture is not ready to harvest"
             );
 
             // Update fixture
-            fixture.harvest_countdown = Some(100);
+            *harvest_countdown = HarvestCountdown(100);
 
             // Create new item
             let item_id = items.index.alloc(None);
@@ -288,7 +299,7 @@ pub fn step_toil(
             ToilResult::Done
         }
         ToilKind::Sleep { fixture_id } => {
-            let (fixture, fixture_tile) = fixtures.get(fixture_id);
+            let (fixture, (fixture_tile, _, _)) = fixtures.get(fixture_id);
             assert_eq!(fixture.kind, FixtureKind::SleepingPad);
             assert!(
                 manhattan(*pawn_tile, *fixture_tile) <= 1,

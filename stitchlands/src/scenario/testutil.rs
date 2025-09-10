@@ -5,14 +5,15 @@ use simkit_core::{grid::TileId, ids::IdIndex};
 
 use super::{load_scenario_from_def, model::ScenarioDef};
 use crate::{
+    RngResource,
+    StepSystemLabel,
     environment_step::EnvironmentStepPlugin,
     model::{
+        HarvestCountdown,
         components::{Fixture, Pawn},
         ids::{FixtureId, ItemId, PawnId, TaskId},
     },
     tasks::TaskPlugin,
-    RngResource,
-    StepSystemLabel,
 };
 
 #[derive(Resource)]
@@ -86,11 +87,15 @@ pub fn pawn_by_id(world: &mut World, id: u64) -> (Entity, Pawn, TileId) {
 }
 
 /// Find a fixture by id and return (Entity, Fixture clone, TileId).
-pub fn fixture_by_id(world: &mut World, id: u64) -> (Entity, Fixture, TileId) {
-    let mut q = world.query::<(Entity, &Fixture, &TileId)>();
-    for (e, f, pos) in q.iter(world) {
+pub fn fixture_by_id(
+    world: &mut World,
+    id: u64,
+) -> (Entity, Fixture, TileId, Option<HarvestCountdown>) {
+    let mut q =
+        world.query::<(Entity, &Fixture, &TileId, Option<&HarvestCountdown>)>();
+    for (e, f, pos, harvest_countdown) in q.iter(world) {
         if f.id.0 == id {
-            return (e, f.clone(), *pos);
+            return (e, f.clone(), *pos, harvest_countdown.copied());
         }
     }
     panic!("Fixture with id={} not found", id);

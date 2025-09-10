@@ -4,23 +4,23 @@ use bevy::{
     platform::collections::{HashMap, HashSet},
     prelude::*,
 };
-use rand::{rngs::SmallRng, Rng, SeedableRng};
+use rand::{Rng, SeedableRng, rngs::SmallRng};
 use simkit_core::{
-    grid::{index::TileMapIndex, GridConfig, TileId},
+    grid::{GridConfig, TileId, index::TileMapIndex},
     ids::IdIndex,
 };
 
 use super::model::{MapSize, ScenarioDef};
 use crate::{
+    CliOptions,
+    RngResource,
     model::{
         components::*,
         ids::*,
-        snapshot::{load_world_snapshot, WorldSnapshot},
+        snapshot::{WorldSnapshot, load_world_snapshot},
         world::WorldGrid,
     },
     tasks::WorkPriority,
-    CliOptions,
-    RngResource,
 };
 
 #[derive(Resource, Default, Debug, Clone, Copy)]
@@ -255,12 +255,12 @@ fn rand_pos(rng: &mut SmallRng, size: super::model::MapSize) -> TileId {
 fn unique_pos(
     used: &mut std::collections::HashSet<(i32, i32)>,
     mut pos: TileId,
-    gen: &mut dyn FnMut() -> TileId,
+    pgen: &mut dyn FnMut() -> TileId,
 ) -> TileId {
     let mut tries = 0;
     let max_tries = 1000;
     while used.contains(&(pos.x, pos.y)) && tries < max_tries {
-        pos = gen();
+        pos = pgen();
         tries += 1;
     }
     used.insert((pos.x, pos.y));
@@ -353,10 +353,10 @@ fn spawn_pawns_from_def(
         let typed = index.alloc(p.id.map(PawnId));
         let name = p.name.clone().unwrap_or_else(|| format!("Pawn{}", i + 1));
 
-        let mut gen = || rand_pos(rng, map_size);
+        let mut pgen = || rand_pos(rng, map_size);
         let pos = match p.pos {
-            Some(pos) => unique_pos(&mut used_positions, pos, &mut gen),
-            None => unique_pos(&mut used_positions, gen(), &mut gen),
+            Some(pos) => unique_pos(&mut used_positions, pos, &mut pgen),
+            None => unique_pos(&mut used_positions, pgen(), &mut pgen),
         };
 
         // Build pawn inventory: spawn items carried by this pawn
@@ -411,7 +411,7 @@ fn spawn_items_from_def(
 ) -> Inventory {
     use std::collections::HashSet;
     let mut used_positions: HashSet<(i32, i32)> = HashSet::new();
-    let mut gen = || rand_pos(rng, map_size);
+    let mut pgen = || rand_pos(rng, map_size);
 
     let mut inventory = Inventory::default();
 
@@ -419,8 +419,8 @@ fn spawn_items_from_def(
         let typed = index.alloc(it.id.map(ItemId));
         let kind = ItemKind::from_str(&it.kind).unwrap();
         let pos = match it.pos {
-            Some(pos) => unique_pos(&mut used_positions, pos, &mut gen),
-            None => unique_pos(&mut used_positions, gen(), &mut gen),
+            Some(pos) => unique_pos(&mut used_positions, pos, &mut pgen),
+            None => unique_pos(&mut used_positions, pgen(), &mut pgen),
         };
 
         // Spawn item on ground (via ItemRelation)
@@ -460,10 +460,10 @@ fn spawn_fixtures_from_def(
     let mut used_positions: HashSet<(i32, i32)> = HashSet::new();
     for it in fixtures.iter() {
         let typed = index.alloc(it.id.map(FixtureId));
-        let mut gen = || rand_pos(rng, map_size);
+        let mut pgen = || rand_pos(rng, map_size);
         let pos = match it.pos {
-            Some(pos) => unique_pos(&mut used_positions, pos, &mut gen),
-            None => unique_pos(&mut used_positions, gen(), &mut gen),
+            Some(pos) => unique_pos(&mut used_positions, pos, &mut pgen),
+            None => unique_pos(&mut used_positions, pgen(), &mut pgen),
         };
         // Build fixture inventory by spawning items attached to the fixture,
         // not on the ground.
@@ -488,25 +488,30 @@ fn spawn_fixtures_from_def(
         }
         let kind = FixtureKind::from_str(&it.kind).unwrap();
 
-        let entity = commands
-            .spawn((
-                crate::WorldTag,
-                Name::new(format!("Fixture#{}", typed.0)),
-                Fixture {
-                    id: typed,
-                    harvest_countdown: match it.harvest_countdown {
-                        Some(countdown) => Some(countdown),
-                        None => match kind {
-                            FixtureKind::BerryBush => Some(100),
-                            _ => None,
-                        },
-                    },
-                    kind,
-                    inventory,
-                },
-                pos,
-            ))
-            .id();
+        let mut e_commands = commands.spawn((
+            crate::WorldTag,
+            Name::new(format!("Fixture#{}", typed.0)),
+            Fixture {
+                id: typed,
+                kind: kind.clone(),
+                inventory,
+            },
+            pos,
+        ));
+
+        match kind {
+            FixtureKind::BerryBush => {
+                e_commands.insert(HarvestCountdown(
+                    it.harvest_countdown.unwrap_or(100),
+                ));
+            }
+            FixtureKind::ConstructionSite => {
+                panic!("Construction site should not be spawned");
+            }
+            _ => {}
+        }
+
+        let entity = e_commands.id();
         index.insert(typed, entity);
 
         // Tile index mark
@@ -871,9 +876,10 @@ mod tests {
 
         let world = app.world_mut();
         // Scope fixture borrow so we can run other queries after.
-        let (_fe, fixture_copy, fpos_copy) = fixture_by_id(world, 123);
+        let (_fe, fixture_copy, fpos_copy, harvest_countdown) =
+            fixture_by_id(world, 123);
         assert_eq!(fixture_copy.kind, FixtureKind::BerryBush);
-        assert_eq!(fixture_copy.harvest_countdown, Some(100));
+        assert_eq!(harvest_countdown, Some(HarvestCountdown(100)));
         assert_eq!(fpos_copy, TileId::new(1, 1));
         let (item_id, _) = fixture_copy
             .inventory
@@ -938,7 +944,7 @@ mod tests {
         assert_eq!(p2_pos, TileId::new(0, 3));
 
         // Assert fixture position
-        let (_, _f, fpos) = fixture_by_id(world, 5);
+        let (_, _f, fpos, _) = fixture_by_id(world, 5);
         assert_eq!(fpos, TileId::new(2, 2));
     }
 }

@@ -99,11 +99,7 @@ pub fn astar(
 }
 
 fn step_cost(a: TileId, b: TileId) -> u32 {
-    if a.x == b.x || a.y == b.y {
-        10
-    } else {
-        14
-    }
+    if a.x == b.x || a.y == b.y { 10 } else { 14 }
 }
 
 fn neighbors(cfg: GridConfig, tile: TileId) -> Vec<TileId> {

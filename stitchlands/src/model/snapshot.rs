@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
-use simkit_core::{grid::TileId, ids::IdIndex, Tick};
+use simkit_core::{Tick, grid::TileId, ids::IdIndex};
 
 use crate::model::{components::*, ids::*};
 

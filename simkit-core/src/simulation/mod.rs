@@ -5,7 +5,7 @@ use std::{collections::VecDeque, sync::Arc};
 use bevy::prelude::*;
 pub use journal::{Journal, JournalConfig, JournalLine};
 
-use crate::{AppState, KitSystemSet, Tick, POD};
+use crate::{AppState, KitSystemSet, POD, Tick};
 
 pub trait Simulation: Sync + Send + 'static {
     type State: POD + Resource + Default;

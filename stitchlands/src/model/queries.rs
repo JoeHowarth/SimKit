@@ -1,7 +1,7 @@
 use bevy::{
     ecs::{
         query::{QueryData, QueryFilter, ROQueryItem},
-        system::SystemParam,
+        system::{QueryLens, SystemParam},
     },
     prelude::*,
 };
@@ -87,8 +87,16 @@ type OnlyItem = (Without<Pawn>, Without<Fixture>);
 type OnlyPawn = (Without<Item>, Without<Fixture>);
 type OnlyFixture = (Without<Pawn>, Without<Item>);
 
-pub type FixtureQuery<'w, 's, D, F = ()> =
-    IdQuery<'w, 's, Fixture, D, (F, OnlyFixture)>;
+pub type FixtureQuery<
+    'w,
+    's,
+    D = (
+        &'static TileId,
+        Option<&'static HarvestCountdown>,
+        Option<&'static BuildWorkLeft>,
+    ),
+    F = (),
+> = IdQuery<'w, 's, Fixture, D, (F, OnlyFixture)>;
 pub type ItemQuery<'w, 's, D, F = ()> = IdQuery<'w, 's, Item, D, (F, OnlyItem)>;
 pub type PawnQuery<'w, 's, D, F = ()> = IdQuery<'w, 's, Pawn, D, (F, OnlyPawn)>;
 
@@ -98,6 +106,23 @@ pub type ItemQueryMut<'w, 's, D, F = ()> =
     IdQueryMut<'w, 's, Item, D, (F, OnlyItem)>;
 pub type PawnQueryMut<'w, 's, D, F = ()> =
     IdQueryMut<'w, 's, Pawn, D, (F, OnlyPawn)>;
+
+impl FixtureQuery<'_, '_> {
+    pub fn tile_id(&self, id: &FixtureId) -> &TileId {
+        self.get(id).1.0
+    }
+
+    pub fn harvest_countdown(
+        &self,
+        id: &FixtureId,
+    ) -> Option<&HarvestCountdown> {
+        self.get(id).1.1
+    }
+
+    pub fn build_work_left(&self, id: &FixtureId) -> Option<&BuildWorkLeft> {
+        self.get(id).1.2
+    }
+}
 
 pub trait WorldExt {
     fn get_simid<Id: SimId>(&self, id: &Id) -> (&Id::Type, Entity);
@@ -142,7 +167,7 @@ pub fn neartest_item_pos(
     pawn_pos: &TileId,
     item_kind: &ItemKind,
     items: &ItemQuery<&ItemRelation>,
-    fixtures: &FixtureQuery<&TileId>,
+    fixtures: &FixtureQuery,
 ) -> Option<TileId> {
     if pawn.inventory.find(*item_kind).is_some() {
         return Some(*pawn_pos);
@@ -154,7 +179,7 @@ pub fn neartest_item_pos(
     let (item_id, _dist) = closer_option_item_locator(on_ground, fixture)?;
     Some(match items.get(&item_id).1 {
         ItemRelation::CarriedBy(_) => *pawn_pos,
-        ItemRelation::InFixture(fixture_id) => *fixtures.get(fixture_id).1,
+        ItemRelation::InFixture(fixture_id) => *fixtures.tile_id(fixture_id),
         ItemRelation::OnGround(tile_id) => *tile_id,
     })
 }
@@ -194,11 +219,11 @@ pub fn nearest_item_on_ground(
 pub fn nearest_fixture_with_item(
     target_kind: &ItemKind,
     current_pos: &TileId,
-    fixtures: &FixtureQuery<&TileId>,
+    fixtures: &FixtureQuery,
 ) -> Option<(ItemId, u32)> {
     // find nearest fixture that contains item
     let mut nearest = None;
-    for (fixture, fixture_pos) in fixtures.query.iter() {
+    for (fixture, (fixture_pos, _, _)) in fixtures.query.iter() {
         let Some(loc) = fixture
             .inventory
             .find(*target_kind)

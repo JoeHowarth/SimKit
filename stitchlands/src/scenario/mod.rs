@@ -4,16 +4,16 @@ pub mod model;
 pub mod testutil;
 
 use bevy::prelude::*;
-pub use loader::{load_scenario_from_def, LoadedScenarioMeta};
-use simkit_core::{ids::IdIndex, AppState};
+pub use loader::{LoadedScenarioMeta, load_scenario_from_def};
+use simkit_core::{AppState, ids::IdIndex};
 
 use crate::{
+    CliOptions,
+    RunMode,
     model::{
         components::{Fixture, Item, Pawn},
         ids::{FixtureId, ItemId, PawnId, TaskId},
     },
-    CliOptions,
-    RunMode,
 };
 
 pub struct ScenarioPlugin;
@@ -44,10 +44,10 @@ impl Plugin for ScenarioPlugin {
                 ),
             );
         // In headless mode (no states), ensure loading occurs at Startup
-        if let Some(cli) = app.world().get_resource::<CliOptions>()
-            && cli.mode == RunMode::Headless
-        {
-            app.add_systems(Startup, loader::load_scenario);
+        if let Some(cli) = app.world().get_resource::<CliOptions>() {
+            if cli.mode == RunMode::Headless {
+                app.add_systems(Startup, loader::load_scenario);
+            }
         }
     }
 }

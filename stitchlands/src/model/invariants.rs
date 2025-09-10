@@ -1,10 +1,11 @@
 use bevy::{platform::collections::HashSet, prelude::*};
 use simkit_core::{
-    grid::{index::TileMapIndex, TileId},
+    grid::{TileId, index::TileMapIndex},
     ids::IdIndex,
 };
 
 use crate::model::{
+    HarvestCountdown,
     components::{Fixture, FixtureKind, Item, ItemRelation, Pawn},
     ids::{FixtureId, ItemId, PawnId},
     world::WorldGrid,
@@ -141,17 +142,22 @@ pub fn validate_world(world: &mut World) -> Vec<String> {
         Entity,
         FixtureId,
         FixtureKind,
-        Option<u32>,
+        Option<HarvestCountdown>,
         Option<TileId>,
     )> = {
         let mut out = Vec::new();
-        let mut q = world.query::<(Entity, &Fixture, Option<&TileId>)>();
-        for (e, fixture, pos_opt) in q.iter(world) {
+        let mut q = world.query::<(
+            Entity,
+            &Fixture,
+            Option<&TileId>,
+            Option<&HarvestCountdown>,
+        )>();
+        for (e, fixture, pos_opt, harvest_countdown_opt) in q.iter(world) {
             out.push((
                 e,
                 fixture.id,
                 fixture.kind.clone(),
-                fixture.harvest_countdown,
+                harvest_countdown_opt.copied(),
                 pos_opt.copied(),
             ));
         }
@@ -561,9 +567,9 @@ mod tests {
                         fixture_item_id,
                         crate::model::components::ItemKind::Berry,
                     )]),
-                    harvest_countdown: Some(100),
                 },
                 TileId::new(2, 2),
+                HarvestCountdown(100),
             ))
             .id();
         app.world_mut()
@@ -821,7 +827,6 @@ mod tests {
                     id: fid,
                     kind: FixtureKind::Stockpile,
                     inventory: Inventory::default(),
-                    harvest_countdown: None,
                 },
                 TileId::new(1, 1),
             ))
@@ -880,8 +885,9 @@ mod tests {
         assert!(errs.iter().any(
             |e| e.contains("appears in both pawn") && e.contains("fixture")
         ));
-        assert!(errs
-            .iter()
-            .any(|e| e.contains("inventory") && e.contains("relation is")));
+        assert!(
+            errs.iter()
+                .any(|e| e.contains("inventory") && e.contains("relation is"))
+        );
     }
 }

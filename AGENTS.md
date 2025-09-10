@@ -16,7 +16,7 @@
 
 ## Coding Style & Naming Conventions
 
-- Rust edition 2021, nightly toolchain (`rust-toolchain.toml`).
+- Rust edition 2024, nightly toolchain (`rust-toolchain.toml`).
 - Formatting enforced by `rustfmt.toml` (80 cols, grouped/reordered imports, wrapped comments).
 - Lint with Clippy; fix or `#[allow]` with justification.
 - Naming: modules/files `snake_case`; types/traits `UpperCamelCase`; functions/vars `snake_case`; constants `SCREAMING_SNAKE_CASE`.

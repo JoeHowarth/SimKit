@@ -1,13 +1,12 @@
 #![allow(clippy::type_complexity, clippy::too_many_arguments)]
-#![feature(let_chains)]
 
 use bevy::prelude::*;
-use rand::{rngs::SmallRng, SeedableRng};
+use rand::{SeedableRng, rngs::SmallRng};
 use simkit_core::{
-    grid::{index::sync_tile_index, TileId},
     AppState,
     KitSystemSet,
     Tick,
+    grid::{TileId, index::sync_tile_index},
 };
 
 use crate::{

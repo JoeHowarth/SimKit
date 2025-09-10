@@ -7,7 +7,7 @@ impl JobKind {
         pawn_tile: &TileId,
         tasks: &TaskBoard,
         items: &ItemQuery<&ItemRelation>,
-        fixtures: &FixtureQuery<&TileId>,
+        fixtures: &FixtureQuery,
         fixture_tile_index: &TileMapIndex<FixtureId>,
     ) -> Result<VecDeque<ToilKind>, String> {
         match self {
@@ -31,17 +31,16 @@ pub fn build_plan_for_task(
     pawn: &Pawn,
     pawn_tile: &TileId,
     items: &ItemQuery<&ItemRelation>,
-    fixtures: &FixtureQuery<&TileId>,
+    fixtures: &FixtureQuery,
     fixture_tile_index: &TileMapIndex<FixtureId>,
 ) -> Result<VecDeque<ToilKind>, String> {
     match &task.spec {
         TaskSpec::Harvest(fixture_id) => {
-            let (fixture, fixture_tile) = fixtures.get(fixture_id);
+            let (fixture, (fixture_tile, harvest_countdown, _)) =
+                fixtures.get(fixture_id);
 
             // Check if fixture is ready to harvest
-            if fixture.harvest_countdown.is_none()
-                || fixture.harvest_countdown.unwrap() > 0
-            {
+            if harvest_countdown.is_none() || harvest_countdown.unwrap().0 > 0 {
                 return Err(format!(
                     "Fixture {:?} is not ready to harvest",
                     fixture_id
@@ -88,7 +87,7 @@ pub fn build_plan_for_task(
             let seed_pos = match items.get(&seed).1 {
                 ItemRelation::CarriedBy(_) => *pawn_tile,
                 ItemRelation::InFixture(fixture_id) => {
-                    *fixtures.get(fixture_id).1
+                    *fixtures.get(fixture_id).1.0
                 }
                 ItemRelation::OnGround(tile_id) => *tile_id,
             };
@@ -108,15 +107,15 @@ pub fn build_plan_for_task(
 
 pub fn build_sleep_plan(
     pawn_pos: &TileId,
-    fixtures: &FixtureQuery<&TileId>,
+    fixtures: &FixtureQuery,
 ) -> Result<VecDeque<ToilKind>, String> {
     let sleeping_pad = fixtures
         .query
         .iter()
         .filter(|(fixture, _)| fixture.kind == FixtureKind::SleepingPad)
-        .min_by_key(|(_, pos)| manhattan(*pawn_pos, **pos));
+        .min_by_key(|(_, (pos, _, _))| manhattan(*pawn_pos, **pos));
 
-    let Some((sleeping_pad, sleeping_pad_pos)) = sleeping_pad else {
+    let Some((sleeping_pad, (sleeping_pad_pos, _, _))) = sleeping_pad else {
         return Err(format!("No sleeping pad found for pawn {:?}", pawn_pos));
     };
 
@@ -135,7 +134,7 @@ pub fn build_eat_plan(
     pawn: &Pawn,
     pawn_tile: &TileId,
     items: &ItemQuery<&ItemRelation>,
-    fixtures: &FixtureQuery<&TileId>,
+    fixtures: &FixtureQuery,
 ) -> Result<VecDeque<ToilKind>, String> {
     let Some((mut plan, item_id)) = build_acquire_item_plan(
         pawn,
@@ -155,7 +154,7 @@ fn build_acquire_item_plan(
     pawn_pos: &TileId,
     item_kind: &ItemKind,
     items: &ItemQuery<&ItemRelation>,
-    fixtures: &FixtureQuery<&TileId>,
+    fixtures: &FixtureQuery,
 ) -> Option<(VecDeque<ToilKind>, ItemId)> {
     if let Some(item_id) = pawn.inventory.find(*item_kind) {
         return Some((VecDeque::new(), item_id));
@@ -167,7 +166,7 @@ fn build_acquire_item_plan(
 
     let item_pos = match items.get(&item_id).1 {
         ItemRelation::CarriedBy(_) => *pawn_pos,
-        ItemRelation::InFixture(fixture_id) => *fixtures.get(fixture_id).1,
+        ItemRelation::InFixture(fixture_id) => *fixtures.get(fixture_id).1.0,
         ItemRelation::OnGround(tile_id) => *tile_id,
     };
 

@@ -6,7 +6,7 @@ use std::{
 use bevy::{prelude::*, reflect::Reflect};
 use serde::{Deserialize, Serialize};
 
-use crate::{simulation::Simulation, Tick, POD};
+use crate::{POD, Tick, simulation::Simulation};
 
 #[derive(Resource)]
 pub struct JournalConfig {

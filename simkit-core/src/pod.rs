@@ -1,7 +1,7 @@
 use std::{fmt::Debug, hash::Hash};
 
 use bevy::reflect::{FromReflect, GetTypeRegistration, Reflect, Typed};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 
 /// A trait for types that are POD (Plain Old Data)
 pub trait POD:
@@ -22,21 +22,21 @@ pub trait POD:
 {
 }
 impl<
-        T: Reflect
-            + FromReflect
-            + Debug
-            + Clone
-            + PartialEq
-            + Eq
-            + Hash
-            + Send
-            + Sync
-            + Typed
-            + GetTypeRegistration
-            + Serialize
-            + DeserializeOwned
-            + 'static,
-    > POD for T
+    T: Reflect
+        + FromReflect
+        + Debug
+        + Clone
+        + PartialEq
+        + Eq
+        + Hash
+        + Send
+        + Sync
+        + Typed
+        + GetTypeRegistration
+        + Serialize
+        + DeserializeOwned
+        + 'static,
+> POD for T
 {
 }
 
