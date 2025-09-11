@@ -22,6 +22,8 @@ pub use menu::MenuPlugin;
 pub use playback::{PlayBackCommand, Playback};
 pub use pod::POD;
 
+use crate::playback::setup_playback_resource;
+
 crate::pod! {
 #[derive(Copy, Resource)]
 pub struct Tick(pub i32);
@@ -123,11 +125,6 @@ impl<S: ScheduleLabel + Clone> Plugin for KitCoreBase<S> {
         } else {
             app.add_systems(Update, playback::ensure_playback_resource);
         }
-
-        app.add_systems(
-            self.step_system_label.clone(),
-            (Playback::inc_tick.in_set(KitSystemSet::Tick),),
-        );
     }
 }
 
@@ -142,12 +139,18 @@ pub fn configure_sets<S: ScheduleLabel + Clone>(
         KitSystemSet::Step,
         KitSystemSet::PostStep,
     )
-        .chain()
-        .run_if(Playback::should_step);
+        .chain();
     if use_states {
-        fixed = fixed.run_if(in_state(AppState::InGame));
+        fixed = fixed
+            .run_if(in_state(AppState::InGame))
+            .run_if(Playback::should_step);
     }
     app.configure_sets(step_system_label.clone(), fixed);
+    app.add_systems(
+        step_system_label,
+        Playback::inc_tick.in_set(KitSystemSet::Tick),
+    );
+    setup_playback_resource(app.world_mut().commands());
 
     let mut update =
         (KitSystemSet::HandleCommands, KitSystemSet::PerFrame).chain();

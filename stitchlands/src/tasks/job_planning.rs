@@ -1,6 +1,28 @@
 use super::*;
 
 impl JobKind {
+    pub fn build_plan_from_world(
+        &self,
+        world: &World,
+        pawn_id: &PawnId,
+        items: &ItemQuery<&ItemRelation>,
+        fixtures: &FixtureQuery,
+    ) -> Result<VecDeque<ToilKind>, String> {
+        let pawn = world.comp(pawn_id);
+        let pawn_tile = world.comp(pawn_id);
+        let tasks = world.resource::<TaskBoard>();
+        let fixture_tile_index = world.resource::<TileMapIndex<FixtureId>>();
+
+        self.build_plan(
+            pawn,
+            pawn_tile,
+            tasks,
+            items,
+            fixtures,
+            fixture_tile_index,
+        )
+    }
+
     pub fn build_plan(
         &self,
         pawn: &Pawn,
@@ -35,15 +57,14 @@ pub fn build_plan_for_task(
     fixture_tile_index: &TileMapIndex<FixtureId>,
 ) -> Result<VecDeque<ToilKind>, String> {
     match &task.spec {
-        TaskSpec::Harvest(fixture_id) => {
-            let (fixture, (fixture_tile, harvest_countdown, _)) =
-                fixtures.get(fixture_id);
+        TaskSpec::Harvest { to_harvest, .. } => {
+            let (_, (fixture_tile, harvestable, _)) = fixtures.get(to_harvest);
 
             // Check if fixture is ready to harvest
-            if harvest_countdown.is_none() || harvest_countdown.unwrap().0 > 0 {
+            if harvestable.is_none() || harvestable.unwrap().countdown > 0 {
                 return Err(format!(
                     "Fixture {:?} is not ready to harvest",
-                    fixture_id
+                    to_harvest
                 ));
             }
 
@@ -51,22 +72,14 @@ pub fn build_plan_for_task(
             // If already adjacent, no need to move
             if dist <= 1 {
                 return Ok(VecDeque::from_iter([ToilKind::Harvest {
-                    fixture_id: *fixture_id,
+                    fixture_id: *to_harvest,
                 }]));
             }
 
-            // Otherwise, move to the last tile before the fixture
-            let mut path = manhattan_path(*pawn_tile, *fixture_tile);
-            // Don't move into the fixture
-            path.pop_back();
-            let target = *path
-                .back()
-                .expect("path must be non-empty when distance > 1");
-
             Ok(VecDeque::from_iter([
-                ToilKind::MoveTo { target, path },
+                move_to_adj(*pawn_tile, *fixture_tile),
                 ToilKind::Harvest {
-                    fixture_id: *fixture_id,
+                    fixture_id: *to_harvest,
                 },
             ]))
         }
@@ -92,15 +105,74 @@ pub fn build_plan_for_task(
                 ItemRelation::OnGround(tile_id) => *tile_id,
             };
 
-            plan.push_back(ToilKind::MoveTo {
-                target: *target_tile_id,
-                path: manhattan_path(seed_pos, *target_tile_id),
-            });
+            plan.push_back(move_to_adj(seed_pos, *target_tile_id));
             plan.push_back(ToilKind::Plant {
                 seed_id: seed,
                 tile_id: *target_tile_id,
             });
             Ok(plan)
+        }
+        TaskSpec::Build(building_spec) => {
+            // Check if a fixture already exists there
+            //    no  => move_to, place construction site
+            //    yes => if it's a construction site continue, else site is not
+            // valid to build on
+            assert!(!building_spec.required_items.is_empty());
+            assert!(
+                building_spec.required_items.iter().all(|(_, x)| *x > 0),
+                "All requied items in list must have non-zero qtys"
+            );
+
+            let mut plan = VecDeque::new();
+            match fixture_tile_index.get(building_spec.top_left) {
+                Some(fixture_id) => {
+                    let fixture = fixtures.get(&fixture_id).0;
+
+                    if fixture.kind != FixtureKind::ConstructionSite {
+                        return Err(format!(
+                            "Tile {:?} is not a valid build site. Contains \
+                             fixture {:?}",
+                            building_spec.top_left, fixture_id
+                        ));
+                    }
+                }
+                None => {
+                    plan.push_back(move_to_adj(
+                        *pawn_tile,
+                        building_spec.top_left,
+                    ));
+                    plan.push_back(ToilKind::PlaceConstructionSite {
+                        building_spec: building_spec.clone(),
+                    })
+                }
+            }
+
+            // Fetch all required items
+            for (item_kind, qty) in &building_spec.required_items {
+                for _ in 0..*qty {
+                    let (plan_, item_id) = build_acquire_item_plan(
+                        pawn, pawn_tile, item_kind, items, fixtures,
+                    )
+                    .ok_or_else(|| {
+                        format!("Failed to acquire item {:?}", item_kind)
+                    })?;
+
+                    plan.extend(plan_);
+                    plan.push_back(move_to_adj(
+                        *pawn_tile,
+                        building_spec.top_left,
+                    ));
+                    plan.push_back(ToilKind::StoreItem {
+                        item_id,
+                        target_fixture_id: None,
+                        fixture_pos: building_spec.top_left,
+                    });
+                }
+            }
+
+            // Build
+
+            todo!()
         }
     }
 }
@@ -176,10 +248,29 @@ fn build_acquire_item_plan(
                 target: item_pos,
                 path: manhattan_path(*pawn_pos, item_pos),
             },
-            ToilKind::PickUp { item_id },
+            ToilKind::PickUpItem { item_id },
         ]),
         item_id,
     ))
+}
+
+pub fn move_to_adj(start: TileId, end: TileId) -> ToilKind {
+    let path = manhattan_path_adj(start, end);
+    ToilKind::MoveTo {
+        target: *path.back().unwrap(),
+        path,
+    }
+}
+
+pub fn manhattan_path_adj(start: TileId, end: TileId) -> VecDeque<TileId> {
+    if start == end {
+        // TODO: should handle map boundaries
+        return VecDeque::from_iter([TileId::new(start.x + 1, start.y)]);
+    }
+
+    let mut path = manhattan_path(start, end);
+    path.pop_back().unwrap();
+    path
 }
 
 pub fn manhattan_path(start: TileId, end: TileId) -> VecDeque<TileId> {

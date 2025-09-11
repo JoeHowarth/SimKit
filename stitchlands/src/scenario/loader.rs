@@ -501,9 +501,10 @@ fn spawn_fixtures_from_def(
 
         match kind {
             FixtureKind::BerryBush => {
-                e_commands.insert(HarvestCountdown(
-                    it.harvest_countdown.unwrap_or(100),
-                ));
+                e_commands.insert(Harvestable {
+                    countdown: it.harvest_countdown.unwrap_or(100),
+                    seq_num: 0,
+                });
             }
             FixtureKind::ConstructionSite => {
                 panic!("Construction site should not be spawned");
@@ -879,7 +880,13 @@ mod tests {
         let (_fe, fixture_copy, fpos_copy, harvest_countdown) =
             fixture_by_id(world, 123);
         assert_eq!(fixture_copy.kind, FixtureKind::BerryBush);
-        assert_eq!(harvest_countdown, Some(HarvestCountdown(100)));
+        assert_eq!(
+            harvest_countdown,
+            Some(Harvestable {
+                countdown: 100,
+                seq_num: 0,
+            })
+        );
         assert_eq!(fpos_copy, TileId::new(1, 1));
         let (item_id, _) = fixture_copy
             .inventory

@@ -23,9 +23,9 @@ fn decrement_needs(mut pawns: Query<&mut Pawn>) {
     }
 }
 
-fn decrement_harvest_countdown(mut fixtures: Query<&mut HarvestCountdown>) {
+fn decrement_harvest_countdown(mut fixtures: Query<&mut Harvestable>) {
     debug!("Decrementing harvest countdown");
-    for mut harvest_countdown in fixtures.iter_mut() {
-        harvest_countdown.0 = harvest_countdown.0.saturating_sub(1);
+    for mut harvestable in fixtures.iter_mut() {
+        harvestable.countdown = harvestable.countdown.saturating_sub(1);
     }
 }

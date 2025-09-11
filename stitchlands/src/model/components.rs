@@ -11,7 +11,7 @@ use crate::{
         PawnQuery,
         ids::{FixtureId, ItemId, PawnId},
     },
-    tasks::Job,
+    tasks::{BuildingSpec, Job},
 };
 
 /// Pawns
@@ -169,16 +169,20 @@ pub struct Fixture {
 }
 
 /// How many work units are left to complete the build
-#[derive(
-    Component, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize,
-)]
-pub struct BuildWorkLeft(pub u32);
+#[derive(Component, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConstructionSite {
+    pub building_spec: BuildingSpec,
+    pub work_left: u32,
+}
 
 /// Ticks until harvest is ready
 #[derive(
     Component, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize,
 )]
-pub struct HarvestCountdown(pub u32);
+pub struct Harvestable {
+    pub countdown: u32,
+    pub seq_num: u32,
+}
 
 impl FromStr for FixtureKind {
     type Err = String;

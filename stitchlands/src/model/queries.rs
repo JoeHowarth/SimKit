@@ -83,17 +83,17 @@ where
     }
 }
 
-type OnlyItem = (Without<Pawn>, Without<Fixture>);
-type OnlyPawn = (Without<Item>, Without<Fixture>);
-type OnlyFixture = (Without<Pawn>, Without<Item>);
+pub type OnlyItem = (Without<Pawn>, Without<Fixture>);
+pub type OnlyPawn = (Without<Item>, Without<Fixture>);
+pub type OnlyFixture = (Without<Pawn>, Without<Item>);
 
 pub type FixtureQuery<
     'w,
     's,
     D = (
         &'static TileId,
-        Option<&'static HarvestCountdown>,
-        Option<&'static BuildWorkLeft>,
+        Option<&'static Harvestable>,
+        Option<&'static ConstructionSite>,
     ),
     F = (),
 > = IdQuery<'w, 's, Fixture, D, (F, OnlyFixture)>;
@@ -112,14 +112,11 @@ impl FixtureQuery<'_, '_> {
         self.get(id).1.0
     }
 
-    pub fn harvest_countdown(
-        &self,
-        id: &FixtureId,
-    ) -> Option<&HarvestCountdown> {
+    pub fn harvest_countdown(&self, id: &FixtureId) -> Option<&Harvestable> {
         self.get(id).1.1
     }
 
-    pub fn build_work_left(&self, id: &FixtureId) -> Option<&BuildWorkLeft> {
+    pub fn build_work_left(&self, id: &FixtureId) -> Option<&ConstructionSite> {
         self.get(id).1.2
     }
 }
@@ -130,10 +127,7 @@ pub trait WorldExt {
         &mut self,
         id: &Id,
     ) -> (Mut<'_, Id::Type>, Entity);
-    fn get_comp_simid<C: Component, Id: SimId>(
-        &self,
-        id: &Id,
-    ) -> (&Id::Type, Entity, &C);
+    fn comp<C: Component, Id: SimId>(&self, id: &Id) -> &C;
 }
 
 impl WorldExt for World {
@@ -152,13 +146,9 @@ impl WorldExt for World {
         (component, e)
     }
 
-    fn get_comp_simid<C: Component, Id: SimId>(
-        &self,
-        id: &Id,
-    ) -> (&Id::Type, Entity, &C) {
-        let (entity, e) = self.get_simid(id);
-        let component = self.get::<C>(e).unwrap();
-        (entity, e, component)
+    fn comp<C: Component, Id: SimId>(&self, id: &Id) -> &C {
+        let e = self.resource::<IdIndex<Id>>().get(id);
+        self.get(e).unwrap()
     }
 }
 

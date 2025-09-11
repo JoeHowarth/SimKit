@@ -29,7 +29,7 @@ fn test_manhattan_path() {
     );
 }
 
-#[test]
+#[test_log::test]
 fn test_build_plan_for_task() {
     let def = ScenarioDef {
         map: MapDef {
@@ -64,10 +64,12 @@ fn test_build_plan_for_task() {
     };
 
     let mut app = app_with_scenario(def);
-    let task_id = app
-        .world_mut()
-        .resource_mut::<TaskBoard>()
-        .add_task(TaskSpec::Harvest(FixtureId(2)));
+    let task_id = app.world_mut().resource_mut::<TaskBoard>().add_task(
+        TaskSpec::Harvest {
+            to_harvest: FixtureId(2),
+            target_seq_num: 1,
+        },
+    );
 
     // Initial state before any updates
     let pawn_id = PawnId(1);
@@ -77,7 +79,6 @@ fn test_build_plan_for_task() {
         let (tile, pawn, job) = q.get(app.world(), e).unwrap();
 
         assert_eq!(job.kind, JobKind::None);
-        assert!(job.current_toil.is_none());
         assert!(job.plan.is_empty());
 
         // Pawn starts at (1, 0) from the schematic
@@ -94,7 +95,7 @@ fn test_build_plan_for_task() {
         assert_eq!(job.kind, JobKind::Task(task_id, TaskSpecKind::Harvest));
 
         // Current toil should be MoveTo towards tile (2,2)
-        match &job.current_toil {
+        match &job.plan.front() {
             Some(ToilKind::MoveTo { target, path }) => {
                 assert_eq!(*target, TileId::new(2, 2));
                 // After one step, two steps remain: (2,1), (2,2)
@@ -104,8 +105,8 @@ fn test_build_plan_for_task() {
         }
 
         // Only Harvest remains in the plan
-        assert_eq!(job.plan.len(), 1);
-        match job.plan.front().unwrap() {
+        assert_eq!(job.plan.len(), 2);
+        match job.plan.get(1).unwrap() {
             ToilKind::Harvest { fixture_id } => {
                 assert_eq!(*fixture_id, FixtureId(2));
             }
@@ -121,7 +122,7 @@ fn test_build_plan_for_task() {
     {
         let (tile, _, job) = q.get(app.world(), e).unwrap();
 
-        match &job.current_toil {
+        match &job.plan.front() {
             Some(ToilKind::MoveTo { target, path }) => {
                 assert_eq!(*target, TileId::new(2, 2));
                 assert_eq!(path.len(), 1);
@@ -129,7 +130,7 @@ fn test_build_plan_for_task() {
             other => panic!("Expected MoveTo toil, got: {:?}", other),
         }
         // Plan still has Harvest
-        assert_eq!(job.plan.len(), 1);
+        assert_eq!(job.plan.len(), 2);
         assert_eq!(*tile, TileId::new(2, 1));
     }
 
@@ -138,7 +139,6 @@ fn test_build_plan_for_task() {
     {
         let (tile, _, job) = q.get(app.world(), e).unwrap();
 
-        assert!(job.current_toil.is_none());
         assert_eq!(*tile, TileId::new(2, 2));
         // Harvest is still queued
         assert_eq!(job.plan.len(), 1);
@@ -153,16 +153,15 @@ fn test_build_plan_for_task() {
 
         // Harvest finished this tick; job is cleared in the same tick
         assert!(matches!(job.kind, JobKind::None));
-        assert!(job.current_toil.is_none());
         assert!(job.plan.is_empty());
 
         // Pawn now has a Berry in inventory
         assert!(pawn.inventory.of_kind(ItemKind::Berry).next().is_some());
 
         // Fixture harvest cooldown reset
-        let (_, _, harvest_countdown) =
-            world.get_comp_simid::<HarvestCountdown, _>(&FixtureId(2));
-        assert_eq!(harvest_countdown, &HarvestCountdown(100));
+        let harvest_countdown: &Harvestable = world.comp(&FixtureId(2));
+        assert_eq!(harvest_countdown.seq_num, 1);
+        assert!(harvest_countdown.countdown > 90);
     }
 }
 
@@ -199,10 +198,12 @@ fn test_harvest_then_plant() {
     };
 
     let mut app = app_with_scenario(def);
-    let harvest_task_id = app
-        .world_mut()
-        .resource_mut::<TaskBoard>()
-        .add_task(TaskSpec::Harvest(FixtureId(2)));
+    let harvest_task_id = app.world_mut().resource_mut::<TaskBoard>().add_task(
+        TaskSpec::Harvest {
+            to_harvest: FixtureId(2),
+            target_seq_num: 1,
+        },
+    );
     let plant_task_id = app
         .world_mut()
         .resource_mut::<TaskBoard>()
@@ -214,7 +215,6 @@ fn test_harvest_then_plant() {
     {
         let (_tile, _pawn, job) = q.get(app.world(), e).unwrap();
         assert!(matches!(job.kind, JobKind::None));
-        assert!(job.current_toil.is_none());
         assert!(job.plan.is_empty());
     }
 
@@ -229,13 +229,13 @@ fn test_harvest_then_plant() {
                 panic!("expected first task Harvest, got: {:?}", other)
             }
         }
-        match &job.current_toil {
+        match &job.plan.front() {
             Some(ToilKind::MoveTo { .. }) => {}
             other => {
                 panic!("expected MoveTo as first toil, got: {:?}", other)
             }
         }
-        match job.plan.front() {
+        match job.plan.get(1) {
             Some(ToilKind::Harvest { .. }) => {}
             other => {
                 panic!("expected Harvest action queued, got: {:?}", other)
@@ -247,8 +247,7 @@ fn test_harvest_then_plant() {
     for _ in 0..3 {
         app.update();
         let (_tile, _pawn, job) = q.get(app.world(), e).unwrap();
-        if job.current_toil.is_none() {
-            assert!(matches!(job.plan.front(), Some(ToilKind::Harvest { .. })));
+        if matches!(job.plan.front(), Some(ToilKind::Harvest { .. })) {
             reached_harvest_target = true;
             break;
         }
@@ -265,10 +264,8 @@ fn test_harvest_then_plant() {
         assert!(matches!(job.kind, JobKind::None));
         assert!(pawn.inventory.of_kind(ItemKind::Berry).next().is_some());
 
-        let (_, _, harvest_countdown) = app
-            .world()
-            .get_comp_simid::<HarvestCountdown, _>(&FixtureId(2));
-        assert_eq!(harvest_countdown, &HarvestCountdown(100));
+        let harvest: &Harvestable = app.world().comp(&FixtureId(2));
+        assert_eq!(harvest.seq_num, 1);
     }
 
     app.update();
@@ -280,13 +277,13 @@ fn test_harvest_then_plant() {
             }
             other => panic!("expected next task Plant, got: {:?}", other),
         }
-        match &job.current_toil {
+        match &job.plan.front() {
             Some(ToilKind::MoveTo { .. }) => {}
             other => {
                 panic!("expected MoveTo before Plant, got: {:?}", other)
             }
         }
-        match job.plan.front() {
+        match job.plan.get(1) {
             Some(ToilKind::Plant { .. }) => {}
             other => {
                 panic!("expected Plant action queued, got: {:?}", other)
@@ -298,8 +295,7 @@ fn test_harvest_then_plant() {
     for _ in 0..3 {
         app.update();
         let (_tile, _pawn, job) = q.get(app.world(), e).unwrap();
-        if job.current_toil.is_none() {
-            assert!(matches!(job.plan.front(), Some(ToilKind::Plant { .. })));
+        if matches!(job.plan.front(), Some(ToilKind::Plant { .. })) {
             reached_plant_target = true;
             break;
         }
@@ -325,14 +321,13 @@ fn test_harvest_then_plant() {
     {
         let (_tile, _pawn, job) = q.get(app.world(), e).unwrap();
         assert!(matches!(job.kind, JobKind::None));
-        assert!(job.current_toil.is_none());
         assert!(job.plan.is_empty());
     }
 }
 
-pub fn fixture_cd(app: &App, fid: FixtureId) -> Option<HarvestCountdown> {
+pub fn fixture_cd(app: &App, fid: FixtureId) -> Option<Harvestable> {
     let e = app.world().get_simid(&fid).1;
-    app.world().entity(e).get::<HarvestCountdown>().copied()
+    app.world().entity(e).get::<Harvestable>().copied()
 }
 pub fn has_fixture_at(app: &App, pos: TileId) -> bool {
     app.world()
@@ -364,7 +359,10 @@ pub fn finish_moveto(
         app,
         |app| {
             let (_t, _p, j) = q.get(app.world(), e).unwrap();
-            j.current_toil.is_none()
+            j.plan
+                .front()
+                .map(|t| !matches!(t, ToilKind::MoveTo { .. }))
+                .unwrap_or(false)
         },
         max,
     );
@@ -442,14 +440,26 @@ fn test_multi_harvest_and_plant() {
     let mut app = app_with_scenario(def);
     let mut task_board = app.world_mut().resource_mut::<TaskBoard>();
     let task_ids = [
-        task_board.add_task(TaskSpec::Harvest(FixtureId(1))),
-        task_board.add_task(TaskSpec::Harvest(FixtureId(2))),
-        task_board.add_task(TaskSpec::Harvest(FixtureId(3))),
-        task_board.add_task(TaskSpec::Harvest(FixtureId(4))),
+        task_board.add_task(TaskSpec::Harvest {
+            to_harvest: FixtureId(1),
+            target_seq_num: 1,
+        }),
+        task_board.add_task(TaskSpec::Harvest {
+            to_harvest: FixtureId(2),
+            target_seq_num: 1,
+        }),
+        task_board.add_task(TaskSpec::Harvest {
+            to_harvest: FixtureId(3),
+            target_seq_num: 1,
+        }),
+        task_board.add_task(TaskSpec::Harvest {
+            to_harvest: FixtureId(4),
+            target_seq_num: 1,
+        }),
         task_board
             .add_task(TaskSpec::Plant(TileId::new(0, 1), ItemKind::Berry)),
         task_board
-            .add_task(TaskSpec::Plant(TileId::new(3, 3), ItemKind::Berry)),
+            .add_task(TaskSpec::Plant(TileId::new(3, 1), ItemKind::Berry)),
     ];
 
     // Helper functions (high-level, reduce boilerplate)
@@ -466,16 +476,15 @@ fn test_multi_harvest_and_plant() {
             JobKind::Task(_, TaskSpecKind::Harvest) => {}
             other => panic!("expected first job Harvest, got {other:?}"),
         }
-        match (&job.current_toil, job.plan.front()) {
+        match (&job.plan.front(), job.plan.get(1)) {
             (
                 Some(ToilKind::MoveTo { .. }),
                 Some(ToilKind::Harvest { fixture_id }),
             ) => {
                 // Should pick a ready bush and not F3 (countdown=2)
                 assert!(
-                    [FixtureId(1), FixtureId(2), FixtureId(4)]
-                        .contains(fixture_id),
-                    "first Harvest should be one of F1/F2/F4, got {:?}",
+                    FixtureId(2) == *fixture_id,
+                    "first Harvest should be one of F2, got {:?}",
                     fixture_id
                 );
                 // Prefer nearest → F2 from (1,0)
@@ -494,7 +503,7 @@ fn test_multi_harvest_and_plant() {
         let (_tile, _pawn, job) = q.get(app.world(), e).unwrap();
         match job.plan.front() {
             Some(ToilKind::Harvest { fixture_id }) => *fixture_id,
-            _ => panic!("expected Harvest next"),
+            x => panic!("expected Harvest next, got {x:?}"),
         }
     };
     app.update();
@@ -502,10 +511,12 @@ fn test_multi_harvest_and_plant() {
         let (_tile, pawn, job) = q.get(app.world(), e).unwrap();
         assert!(matches!(job.kind, JobKind::None));
         assert!(pawn.inventory.of_kind(ItemKind::Berry).next().is_some());
-        assert_eq!(fixture_cd(&app, last_harvest), Some(HarvestCountdown(100)));
+        let harvest: &Harvestable = app.world().comp(&last_harvest);
+        assert_eq!(harvest.seq_num, 1);
+        assert!(harvest.countdown > 90);
     }
 
-    // 2) Next assignment becomes Plant (now feasible). Should choose (3,3)
+    // 2) Next assignment becomes Plant (now feasible). Should choose (3,1)
     //    first
     app.update();
     let first_plant_target = {
@@ -514,7 +525,7 @@ fn test_multi_harvest_and_plant() {
             JobKind::Task(_, TaskSpecKind::Plant) => {}
             _ => panic!("expected Plant job"),
         };
-        match (&job.current_toil, job.plan.front()) {
+        match (&job.plan.front(), job.plan.get(1)) {
             (
                 Some(ToilKind::MoveTo { .. }),
                 Some(ToilKind::Plant {
@@ -524,8 +535,8 @@ fn test_multi_harvest_and_plant() {
             ) => {
                 assert_eq!(
                     *tile_id,
-                    TileId::new(3, 3),
-                    "expected nearer Plant at (3,3)"
+                    TileId::new(3, 1),
+                    "expected nearer Plant at (3,1)"
                 );
                 *tile_id
             }
@@ -541,7 +552,7 @@ fn test_multi_harvest_and_plant() {
         assert!(has_fixture_at(&app, first_plant_target));
     }
 
-    // 3) Next should be Harvest again (Plant infeasible). Prefer F4 next
+    // 3) Next should be Harvest again (Plant infeasible). Prefer F3 next
     app.update();
     {
         let (_tile, _pawn, job) = q.get(app.world(), e).unwrap();
@@ -549,8 +560,11 @@ fn test_multi_harvest_and_plant() {
             JobKind::Task(_, TaskSpecKind::Harvest) => {}
             _ => panic!("expected Harvest after Plant"),
         };
-        match (&job.current_toil, job.plan.front()) {
-            (None, Some(ToilKind::Harvest { fixture_id })) => {
+        match (&job.plan.front(), job.plan.get(1)) {
+            (
+                Some(ToilKind::MoveTo { .. }),
+                Some(ToilKind::Harvest { fixture_id }),
+            ) => {
                 assert_eq!(
                     *fixture_id,
                     FixtureId(3),
@@ -569,7 +583,9 @@ fn test_multi_harvest_and_plant() {
         }
     };
     app.update();
-    assert_eq!(fixture_cd(&app, last_harvest), Some(HarvestCountdown(100)));
+    let harvest: &Harvestable = app.world().comp(&last_harvest);
+    assert_eq!(harvest.seq_num, 1);
+    assert!(harvest.countdown > 90);
 
     // 4) Plant the second target at (0,1)
     app.update();
@@ -579,7 +595,7 @@ fn test_multi_harvest_and_plant() {
             JobKind::Task(_, TaskSpecKind::Plant) => {}
             _ => panic!("expected Plant job"),
         };
-        match (&job.current_toil, job.plan.front()) {
+        match (&job.plan.front(), job.plan.get(1)) {
             (
                 Some(ToilKind::MoveTo { .. }),
                 Some(ToilKind::Plant { tile_id, .. }),
@@ -602,7 +618,7 @@ fn test_multi_harvest_and_plant() {
             JobKind::Task(_, TaskSpecKind::Harvest) => {}
             _ => panic!("expected Harvest job"),
         };
-        match (&job.current_toil, job.plan.front()) {
+        match (&job.plan.front(), job.plan.get(1)) {
             (
                 Some(ToilKind::MoveTo { .. }),
                 Some(ToilKind::Harvest { fixture_id }),
@@ -625,14 +641,20 @@ fn test_multi_harvest_and_plant() {
         }
     };
     app.update();
-    assert_eq!(fixture_cd(&app, last_harvest), Some(HarvestCountdown(100)));
+    assert_eq!(fixture_cd(&app, last_harvest).map(|h| h.seq_num), Some(1));
 
     // 6) Eventually F1 should become ready and be harvested.
     // Note: Current behavior lacks countdown ticking; this will fail until
     // it's implemented.
     step_until(
         &mut app,
-        |app| fixture_cd(app, FixtureId(1)) == Some(HarvestCountdown(100)),
+        |app| {
+            fixture_cd(app, FixtureId(1))
+                == Some(Harvestable {
+                    countdown: 100,
+                    seq_num: 1,
+                })
+        },
         33,
     );
 
@@ -640,7 +662,6 @@ fn test_multi_harvest_and_plant() {
     {
         let (_tile, pawn, job) = q.get(app.world(), e).unwrap();
         assert!(matches!(job.kind, JobKind::None));
-        assert!(job.current_toil.is_none());
         assert!(job.plan.is_empty());
         assert_eq!(pawn.inventory.of_kind(ItemKind::Berry).count(), 1);
         assert!(pawn.hunger > Q40p24::from(95), "hunger: {:?}", pawn.hunger);
@@ -660,11 +681,17 @@ fn test_multi_harvest_and_plant() {
     );
     assert_eq!(
         task_board.tasks.get(&task_ids[0]).unwrap().spec,
-        TaskSpec::Harvest(FixtureId(1))
+        TaskSpec::Harvest {
+            to_harvest: FixtureId(1),
+            target_seq_num: 1,
+        }
     );
     assert_eq!(
         task_board.tasks.get(&task_ids[1]).unwrap().spec,
-        TaskSpec::Harvest(FixtureId(2))
+        TaskSpec::Harvest {
+            to_harvest: FixtureId(2),
+            target_seq_num: 1,
+        }
     );
     assert_eq!(
         task_board.tasks.get(&task_ids[2]).unwrap().status,
@@ -674,7 +701,10 @@ fn test_multi_harvest_and_plant() {
         *task_board.tasks.get(&task_ids[3]).unwrap(),
         Task {
             id: task_ids[3],
-            spec: TaskSpec::Harvest(FixtureId(4)),
+            spec: TaskSpec::Harvest {
+                to_harvest: FixtureId(4),
+                target_seq_num: 1,
+            },
             status: TaskStatus::Done,
         }
     );
@@ -747,10 +777,22 @@ fn test_two_pawns() {
     let mut app = app_with_scenario(def);
     let mut task_board = app.world_mut().resource_mut::<TaskBoard>();
     let task_ids = [
-        task_board.add_task(TaskSpec::Harvest(FixtureId(1))),
-        task_board.add_task(TaskSpec::Harvest(FixtureId(2))),
-        task_board.add_task(TaskSpec::Harvest(FixtureId(3))),
-        task_board.add_task(TaskSpec::Harvest(FixtureId(4))),
+        task_board.add_task(TaskSpec::Harvest {
+            to_harvest: FixtureId(1),
+            target_seq_num: 1,
+        }),
+        task_board.add_task(TaskSpec::Harvest {
+            to_harvest: FixtureId(2),
+            target_seq_num: 1,
+        }),
+        task_board.add_task(TaskSpec::Harvest {
+            to_harvest: FixtureId(3),
+            target_seq_num: 1,
+        }),
+        task_board.add_task(TaskSpec::Harvest {
+            to_harvest: FixtureId(4),
+            target_seq_num: 1,
+        }),
         task_board
             .add_task(TaskSpec::Plant(TileId::new(0, 1), ItemKind::Berry)),
         task_board

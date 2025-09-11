@@ -54,7 +54,7 @@ pub(super) fn schedule_pawns(
                         *job = Job {
                             kind: preempt,
                             plan,
-                            current_toil: None,
+                            retries: 0,
                         };
                         info!("Preempted job: {:?}", job);
                     }
@@ -129,7 +129,7 @@ fn next_job_is_needs(
                 return Some(Job {
                     kind: JobKind::Eat,
                     plan,
-                    current_toil: None,
+                    retries: 0,
                 });
             }
             Err(e) => {
@@ -144,7 +144,7 @@ fn next_job_is_needs(
                 return Some(Job {
                     kind: JobKind::Sleep,
                     plan,
-                    current_toil: None,
+                    retries: 0,
                 });
             }
             Err(e) => {
@@ -207,7 +207,7 @@ fn choose_next_job(
                     return Job {
                         kind,
                         plan,
-                        current_toil: None,
+                        retries: 0,
                     };
                 }
                 Err(e) => {
@@ -221,11 +221,7 @@ fn choose_next_job(
     }
 
     info!("No job found for pawn {:?}", pawn.id);
-    Job {
-        kind: JobKind::None,
-        plan: VecDeque::new(),
-        current_toil: None,
-    }
+    Job::default()
 }
 
 impl TaskSpec {
@@ -237,11 +233,31 @@ impl TaskSpec {
         items: &ItemQuery<&ItemRelation>,
     ) -> Option<Q40p24> {
         match self {
-            TaskSpec::Harvest(_) => self.harvest_priority(pos, fixtures),
+            TaskSpec::Harvest { .. } => self.harvest_priority(pos, fixtures),
             TaskSpec::Plant(_, _) => {
                 self.plant_priority(pawn, pos, items, fixtures)
             }
+            TaskSpec::Build(..) => {
+                self.build_priority(pawn, pos, fixtures, items)
+            }
         }
+    }
+
+    fn build_priority(
+        &self,
+        pawn: &Pawn,
+        pos: &TileId,
+        fixtures: &FixtureQuery,
+        items: &ItemQuery<&ItemRelation>,
+    ) -> Option<Q40p24> {
+        let TaskSpec::Build(build_spec) = self else {
+            panic!("Build priority called for non-build task");
+        };
+
+        let distance = manhattan(*pos, build_spec.top_left);
+        // Some(distance_to_score(distance))
+
+        todo!()
     }
 
     fn harvest_priority(
@@ -249,13 +265,12 @@ impl TaskSpec {
         pos: &TileId,
         fixtures: &FixtureQuery,
     ) -> Option<Q40p24> {
-        let TaskSpec::Harvest(fixture_id) = self else {
+        let TaskSpec::Harvest { to_harvest, .. } = self else {
             panic!("Harvest priority called for non-harvest task");
         };
 
-        let (fixture, (fixture_pos, harvest_countdown, _)) =
-            fixtures.get(fixture_id);
-        if harvest_countdown.is_none() || harvest_countdown.unwrap().0 > 0 {
+        let (_, (fixture_pos, harvestable, _)) = fixtures.get(to_harvest);
+        if harvestable.is_none() || harvestable.unwrap().countdown > 0 {
             return None;
         }
 

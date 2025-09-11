@@ -5,7 +5,7 @@ use simkit_core::{
 };
 
 use crate::model::{
-    HarvestCountdown,
+    Harvestable,
     components::{Fixture, FixtureKind, Item, ItemRelation, Pawn},
     ids::{FixtureId, ItemId, PawnId},
     world::WorldGrid,
@@ -142,7 +142,7 @@ pub fn validate_world(world: &mut World) -> Vec<String> {
         Entity,
         FixtureId,
         FixtureKind,
-        Option<HarvestCountdown>,
+        Option<Harvestable>,
         Option<TileId>,
     )> = {
         let mut out = Vec::new();
@@ -150,7 +150,7 @@ pub fn validate_world(world: &mut World) -> Vec<String> {
             Entity,
             &Fixture,
             Option<&TileId>,
-            Option<&HarvestCountdown>,
+            Option<&Harvestable>,
         )>();
         for (e, fixture, pos_opt, harvest_countdown_opt) in q.iter(world) {
             out.push((
@@ -569,7 +569,10 @@ mod tests {
                     )]),
                 },
                 TileId::new(2, 2),
-                HarvestCountdown(100),
+                Harvestable {
+                    countdown: 100,
+                    seq_num: 0,
+                },
             ))
             .id();
         app.world_mut()

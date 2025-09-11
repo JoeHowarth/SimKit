@@ -8,54 +8,140 @@ use simkit_core::{
 
 use crate::{
     model::*,
-    tasks::{CompletedTask, Job, JobKind, ToilKind, ToilResult, manhattan},
+    tasks::{
+        CompletedTask,
+        Job,
+        JobKind,
+        TaskBoard,
+        ToilEvent,
+        ToilKind,
+        ToilResult,
+        manhattan,
+    },
 };
+
+pub fn evaluate_job(
+    mut params: ParamSet<(
+        (
+            &World,
+            EventReader<ToilEvent>,
+            ItemQuery<&ItemRelation>,
+            FixtureQuery,
+        ),
+        (EventWriter<CompletedTask>, PawnQueryMut<&mut Job>),
+    )>,
+) {
+    debug!("--- evaluate_job ---");
+    let (
+        world, //
+        mut toil_events,
+        items,
+        fixtures,
+    ) = params.p0();
+
+    let mut job_mutations: Vec<(PawnId, Job)> = Vec::new();
+    let mut completed_tasks: Vec<TaskId> = Vec::new();
+    let task_board = world.resource::<TaskBoard>();
+
+    for toil_event in toil_events.read() {
+        debug!("Toil event: {:?}", toil_event);
+
+        let mut attempt_replan = false;
+        let job: &Job = world.comp(&toil_event.pawn_id);
+
+        let mut replan = || {
+            if let Ok(plan) = job.kind.build_plan_from_world(
+                world,
+                &toil_event.pawn_id,
+                &items,
+                &fixtures,
+            ) {
+                info!("Replanned job: {:?}", plan);
+                job_mutations.push((
+                    toil_event.pawn_id,
+                    Job {
+                        kind: job.kind,
+                        plan,
+                        retries: job.retries + 1,
+                    },
+                ));
+            }
+            job_mutations.push((toil_event.pawn_id, Job::default()));
+            warn!("Failed to replan job: {:?}", job.kind);
+        };
+
+        // Falls through means task is done
+        match toil_event.result {
+            ToilResult::Done => {
+                debug!("Toil done: {:?}", toil_event.toil);
+
+                if !job.plan.is_empty() {
+                    continue;
+                }
+
+                // only replan if job is a non-complete task
+                // else mark complete
+                if let JobKind::Task(task_id, _) = job.kind {
+                    let task_spec =
+                        &task_board.tasks.get(&task_id).unwrap().spec;
+                    if !task_spec.completed(world) {
+                        replan();
+                        continue;
+                    }
+                }
+            }
+            ToilResult::Failed(_) => {
+                debug!("Toil failed: {:?}", toil_event.toil);
+                if job.retries < 2 {
+                    replan();
+                    continue;
+                }
+            }
+            ToilResult::Running => unreachable!(),
+        }
+
+        job_mutations.push((toil_event.pawn_id, Job::default()));
+    }
+
+    let (mut completed_tasks, mut pawns) = params.p1();
+
+    for (pawn_id, new_job) in job_mutations {
+        let (mut tile, mut job) = pawns.get_mut(&pawn_id);
+
+        if new_job.kind == JobKind::None
+            && let JobKind::Task(task_id, _) = job.kind
+        {
+            completed_tasks.write(CompletedTask(task_id));
+        }
+
+        *job = new_job;
+    }
+}
 
 pub fn step_jobs(
     mut commands: Commands,
-    mut completed_tasks: EventWriter<CompletedTask>,
+    mut toil_events: EventWriter<ToilEvent>,
     mut pawns: PawnQueryMut<(&mut TileId, &mut Job)>,
     mut items: ItemQueryMut<&mut ItemRelation>,
     mut fixtures: FixtureQueryMut<(
         &TileId,
-        Option<&mut HarvestCountdown>,
-        Option<&mut BuildWorkLeft>,
+        Option<&mut Harvestable>,
+        Option<&mut ConstructionSite>,
     )>,
     mut pawn_tile_map_index: ResMut<TileMapIndex<PawnId>>,
     mut item_tile_map_index: ResMut<TileMapIndex<ItemId>>,
     mut fixture_tile_index: ResMut<TileMapIndex<FixtureId>>,
 ) {
     debug!("--- step_jobs ---");
-
-    let mut mark_job_complete = |job: &mut Job| {
-        info!("Marking job complete: {:?}", job.kind);
-        if let JobKind::Task(task_id, _) = job.kind {
-            completed_tasks.write(CompletedTask(task_id));
-        }
-        *job = Job {
-            kind: JobKind::None,
-            plan: VecDeque::new(),
-            current_toil: None,
-        };
-    };
-
     for (mut pawn, (mut tile, mut job)) in pawns.query.iter_mut() {
         debug!("Job: {:?}, Pawn: {:?}, Tile: {:?}", job.kind, pawn.id, tile);
-        if job.current_toil.is_none() {
-            debug!("Current toil is none");
-            let Some(toil) = job.plan.pop_front() else {
-                // If the job is a task, complete it
-                mark_job_complete(&mut job);
 
-                continue;
-            };
-
-            // Start the next toil
-            job.current_toil = Some(toil);
+        if job.kind == JobKind::None {
+            continue;
         }
 
         // Run the current toil
-        let toil = job.current_toil.as_mut().unwrap();
+        let toil = job.plan.front_mut().expect("Job has no toil");
         let toil_result = step_toil(
             &mut commands,
             toil,
@@ -68,16 +154,16 @@ pub fn step_jobs(
             &mut fixture_tile_index,
         );
 
-        if toil_result == ToilResult::Done {
+        debug!("Toil result: {:?}", toil_result);
+        if toil_result != ToilResult::Running {
             debug!("Toil done");
-            job.current_toil = None;
-
-            if job.plan.is_empty() {
-                mark_job_complete(&mut job);
-            }
+            let toil = job.plan.pop_front().expect("Job has no toil");
+            toil_events.write(ToilEvent {
+                pawn_id: pawn.id,
+                toil,
+                result: toil_result,
+            });
         }
-
-        info!("Toil result: {:?}", toil_result);
     }
 }
 
@@ -89,8 +175,8 @@ pub fn step_toil(
     items: &mut ItemQueryMut<&mut ItemRelation>,
     fixtures: &mut FixtureQueryMut<(
         &TileId,
-        Option<&mut HarvestCountdown>,
-        Option<&mut BuildWorkLeft>,
+        Option<&mut Harvestable>,
+        Option<&mut ConstructionSite>,
     )>,
     pawn_tile_map_index: &mut ResMut<TileMapIndex<PawnId>>,
     item_tile_map_index: &mut ResMut<TileMapIndex<ItemId>>,
@@ -134,7 +220,7 @@ pub fn step_toil(
             );
             ToilResult::Done
         }
-        ToilKind::PickUp { item_id } => {
+        ToilKind::PickUpItem { item_id } => {
             let (item, mut item_relation) = items.get_mut(item_id);
             let item_pos = match item_relation.as_ref() {
                 ItemRelation::CarriedBy(pawn_id) => {
@@ -179,7 +265,7 @@ pub fn step_toil(
             pawn.inventory.add((*item_id, item.kind));
             ToilResult::Done
         }
-        ToilKind::PutDown {
+        ToilKind::PutDownItem {
             item_id,
             target_tile,
         } => {
@@ -223,7 +309,10 @@ pub fn step_toil(
                         inventory: Inventory::default(),
                     },
                     *target_tile_id,
-                    HarvestCountdown(100),
+                    Harvestable {
+                        countdown: 100,
+                        seq_num: 0,
+                    },
                     Name::new(format!("BerryBush#{}", fixture_id.0)),
                 ))
                 .id();
@@ -248,13 +337,16 @@ pub fn step_toil(
             let mut harvest_countdown = harvest_countdown.unwrap();
             assert_eq!(fixture.kind, FixtureKind::BerryBush);
             assert_eq!(
-                harvest_countdown.as_ref(),
-                &HarvestCountdown(0),
+                harvest_countdown.as_ref().countdown,
+                0,
                 "Fixture is not ready to harvest"
             );
 
             // Update fixture
-            *harvest_countdown = HarvestCountdown(100);
+            *harvest_countdown = Harvestable {
+                countdown: 100,
+                seq_num: harvest_countdown.seq_num + 1,
+            };
 
             // Create new item
             let item_id = items.index.alloc(None);
@@ -316,5 +408,12 @@ pub fn step_toil(
                 ToilResult::Done
             }
         }
+        ToilKind::PlaceConstructionSite { building_spec } => todo!(),
+        ToilKind::Build { fixture_id } => todo!(),
+        ToilKind::StoreItem {
+            item_id,
+            target_fixture_id,
+            fixture_pos,
+        } => todo!(),
     }
 }

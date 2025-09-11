@@ -9,7 +9,7 @@ use crate::{
     StepSystemLabel,
     environment_step::EnvironmentStepPlugin,
     model::{
-        HarvestCountdown,
+        Harvestable,
         components::{Fixture, Pawn},
         ids::{FixtureId, ItemId, PawnId, TaskId},
     },
@@ -90,9 +90,9 @@ pub fn pawn_by_id(world: &mut World, id: u64) -> (Entity, Pawn, TileId) {
 pub fn fixture_by_id(
     world: &mut World,
     id: u64,
-) -> (Entity, Fixture, TileId, Option<HarvestCountdown>) {
+) -> (Entity, Fixture, TileId, Option<Harvestable>) {
     let mut q =
-        world.query::<(Entity, &Fixture, &TileId, Option<&HarvestCountdown>)>();
+        world.query::<(Entity, &Fixture, &TileId, Option<&Harvestable>)>();
     for (e, f, pos, harvest_countdown) in q.iter(world) {
         if f.id.0 == id {
             return (e, f.clone(), *pos, harvest_countdown.copied());

@@ -35,13 +35,28 @@ impl Plugin for TaskPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<TaskBoard>()
             .add_event::<CompletedTask>()
+            .add_event::<ToilEvent>()
             .add_event::<NewTask>()
             .add_systems(PreUpdate, handle_new_task)
             .add_systems(
                 dbg!(StepSystemLabel::default()),
-                (schedule_pawns, step_jobs, mark_tasks_as_done).chain(),
+                (schedule_pawns, step_jobs, evaluate_job, mark_tasks_as_done)
+                    .chain(),
             );
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TaskSpec {
+    /// Harvest a fixture
+    /// target_seq_num should be the value after the harvest has completed
+    /// NOT the value before the harvest has started
+    Harvest {
+        to_harvest: FixtureId,
+        target_seq_num: u32,
+    },
+    Plant(TileId, ItemKind),
+    Build(BuildingSpec),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
@@ -54,21 +69,47 @@ pub enum TaskSpecKind {
 impl TaskSpec {
     pub fn kind(&self) -> TaskSpecKind {
         match self {
-            TaskSpec::Harvest(_) => TaskSpecKind::Harvest,
+            TaskSpec::Harvest { .. } => TaskSpecKind::Harvest,
             TaskSpec::Plant(_, _) => TaskSpecKind::Plant,
             TaskSpec::Build(_) => TaskSpecKind::Build,
         }
     }
+
+    pub fn completed(&self, world: &World) -> bool {
+        match self {
+            TaskSpec::Harvest {
+                to_harvest,
+                target_seq_num,
+            } => {
+                let harvestable: &Harvestable = world.comp(to_harvest);
+                harvestable.seq_num == *target_seq_num
+            }
+            TaskSpec::Plant(tile_id, _item_kind) => {
+                let Some(fixture_id) =
+                    world.resource::<TileMapIndex<FixtureId>>().get(*tile_id)
+                else {
+                    return false;
+                };
+
+                let fixture: &Fixture = world.comp(&fixture_id);
+                fixture.kind == FixtureKind::BerryBush
+            }
+            TaskSpec::Build(building_spec) => {
+                let Some(fixture_id) = world
+                    .resource::<TileMapIndex<FixtureId>>()
+                    .get(building_spec.top_left)
+                else {
+                    return false;
+                };
+
+                let fixture: &Fixture = world.comp(&fixture_id);
+                fixture.kind == building_spec.fixture_kind
+            }
+        }
+    }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TaskSpec {
-    Harvest(FixtureId),
-    Plant(TileId, ItemKind),
-    Build(BuildingSpec),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BuildingSpec {
     pub top_left: TileId,
     pub dim: UVec2,
@@ -93,8 +134,8 @@ pub struct WorkPriority(pub Vec<TaskSpecKind>);
 #[derive(Component, Debug, Default)]
 pub struct Job {
     pub kind: JobKind,
-    pub current_toil: Option<ToilKind>,
     pub plan: VecDeque<ToilKind>,
+    pub retries: u8,
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
@@ -116,6 +157,12 @@ pub enum TaskStatus {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ToilKind {
+    PlaceConstructionSite {
+        building_spec: BuildingSpec,
+    },
+    Build {
+        fixture_id: FixtureId,
+    },
     ReserveItem {
         item: ItemId,
     },
@@ -123,13 +170,18 @@ pub enum ToilKind {
         target: TileId,
         path: VecDeque<TileId>,
     },
-    PickUp {
+    PickUpItem {
         item_id: ItemId,
     },
-    PutDown {
+    PutDownItem {
         // consider allowing ItemId or ItemKind here
         item_id: ItemId,
         target_tile: TileId,
+    },
+    StoreItem {
+        item_id: ItemId,
+        target_fixture_id: Option<FixtureId>,
+        fixture_pos: TileId,
     },
     Plant {
         seed_id: ItemId,
@@ -151,6 +203,13 @@ pub enum ToilResult {
     Done,
     Failed(String),
     Running,
+}
+
+#[derive(Event, Debug, PartialEq, Eq)]
+pub struct ToilEvent {
+    pub pawn_id: PawnId,
+    pub toil: ToilKind,
+    pub result: ToilResult,
 }
 
 #[derive(Resource, Debug)]

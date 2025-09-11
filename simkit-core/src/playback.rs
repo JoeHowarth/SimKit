@@ -33,6 +33,7 @@ impl Playback {
     }
 
     pub fn inc_tick(mut tick: ResMut<Tick>) {
+        info!("Tick: {:?}", tick.0);
         tick.0 += 1;
     }
 }
