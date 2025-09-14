@@ -1,3 +1,5 @@
+use bevy::reflect::ConstParamInfo;
+
 use super::*;
 
 impl JobKind {
@@ -8,18 +10,14 @@ impl JobKind {
         items: &ItemQuery<&ItemRelation>,
         fixtures: &FixtureQuery,
     ) -> Result<VecDeque<ToilKind>, String> {
-        let pawn = world.comp(pawn_id);
-        let pawn_tile = world.comp(pawn_id);
-        let tasks = world.resource::<TaskBoard>();
-        let fixture_tile_index = world.resource::<TileMapIndex<FixtureId>>();
-
         self.build_plan(
-            pawn,
-            pawn_tile,
-            tasks,
+            world.comp(pawn_id),
+            world.comp(pawn_id),
+            world.resource(),
+            world.resource(),
             items,
             fixtures,
-            fixture_tile_index,
+            world.resource(),
         )
     }
 
@@ -28,6 +26,7 @@ impl JobKind {
         pawn: &Pawn,
         pawn_tile: &TileId,
         tasks: &TaskBoard,
+        item_reservations: &ItemReservations,
         items: &ItemQuery<&ItemRelation>,
         fixtures: &FixtureQuery,
         fixture_tile_index: &TileMapIndex<FixtureId>,
@@ -76,12 +75,14 @@ pub fn build_plan_for_task(
                 }]));
             }
 
-            Ok(VecDeque::from_iter([
-                move_to_adj(*pawn_tile, *fixture_tile),
-                ToilKind::Harvest {
-                    fixture_id: *to_harvest,
-                },
-            ]))
+            let mut plan = VecDeque::with_capacity(2);
+            if let Some(move_to) = move_to_adj(*pawn_tile, *fixture_tile) {
+                plan.push_back(move_to);
+            }
+            plan.push_back(ToilKind::Harvest {
+                fixture_id: *to_harvest,
+            });
+            Ok(plan)
         }
         TaskSpec::Plant(target_tile_id, item_kind) => {
             // Check if tile is a plantable tile
@@ -92,20 +93,14 @@ pub fn build_plan_for_task(
                 ));
             }
 
-            let (mut plan, seed) = build_acquire_item_plan(
+            let (mut plan, seed, seed_pos) = build_acquire_item_plan(
                 pawn, pawn_tile, item_kind, items, fixtures,
             )
             .ok_or_else(|| format!("Failed to acquire item {:?}", item_kind))?;
 
-            let seed_pos = match items.get(&seed).1 {
-                ItemRelation::CarriedBy(_) => *pawn_tile,
-                ItemRelation::InFixture(fixture_id) => {
-                    *fixtures.get(fixture_id).1.0
-                }
-                ItemRelation::OnGround(tile_id) => *tile_id,
-            };
-
-            plan.push_back(move_to_adj(seed_pos, *target_tile_id));
+            if let Some(move_to) = move_to_adj(seed_pos, *target_tile_id) {
+                plan.push_back(move_to);
+            }
             plan.push_back(ToilKind::Plant {
                 seed_id: seed,
                 tile_id: *target_tile_id,
@@ -113,66 +108,80 @@ pub fn build_plan_for_task(
             Ok(plan)
         }
         TaskSpec::Build(building_spec) => {
-            // Check if a fixture already exists there
-            //    no  => move_to, place construction site
-            //    yes => if it's a construction site continue, else site is not
-            // valid to build on
             assert!(!building_spec.required_items.is_empty());
             assert!(
                 building_spec.required_items.iter().all(|(_, x)| *x > 0),
                 "All requied items in list must have non-zero qtys"
             );
 
-            let mut plan = VecDeque::new();
-            match fixture_tile_index.get(building_spec.top_left) {
-                Some(fixture_id) => {
-                    let fixture = fixtures.get(&fixture_id).0;
+            let construction_site_id =
+                match fixture_tile_index.get(building_spec.top_left) {
+                    Some(fixture_id) => {
+                        let fixture = fixtures.get(&fixture_id).0;
 
-                    if fixture.kind != FixtureKind::ConstructionSite {
-                        return Err(format!(
-                            "Tile {:?} is not a valid build site. Contains \
-                             fixture {:?}",
-                            building_spec.top_left, fixture_id
-                        ));
+                        if fixture.kind != FixtureKind::ConstructionSite {
+                            return Err(format!(
+                                "Tile {:?} is not a valid build site. \
+                                 Contains fixture {:?}",
+                                building_spec.top_left, fixture_id
+                            ));
+                        }
+                        fixture_id
                     }
-                }
-                None => {
-                    plan.push_back(move_to_adj(
-                        *pawn_tile,
-                        building_spec.top_left,
-                    ));
-                    plan.push_back(ToilKind::PlaceConstructionSite {
-                        building_spec: building_spec.clone(),
-                    })
-                }
-            }
+                    None => {
+                        let mut plan = VecDeque::with_capacity(2);
+                        if let Some(move_to) =
+                            move_to_adj(*pawn_tile, building_spec.top_left)
+                        {
+                            plan.push_back(move_to);
+                        }
+                        plan.push_back(ToilKind::PlaceConstructionSite {
+                            building_spec: building_spec.clone(),
+                        });
+                        return Ok(plan);
+                    }
+                };
 
-            // Fetch all required items
+            let construction_site = fixtures.get(&construction_site_id).0;
+
             for (item_kind, qty) in &building_spec.required_items {
-                for _ in 0..*qty {
-                    let (plan_, item_id) = build_acquire_item_plan(
-                        pawn, pawn_tile, item_kind, items, fixtures,
-                    )
-                    .ok_or_else(|| {
-                        format!("Failed to acquire item {:?}", item_kind)
-                    })?;
+                if construction_site.inventory.of_kind(*item_kind).count()
+                    < *qty as usize
+                {
+                    let (mut plan, item_id, item_pos) =
+                        build_acquire_item_plan(
+                            pawn, pawn_tile, item_kind, items, fixtures,
+                        )
+                        .ok_or_else(|| {
+                            format!("Failed to acquire item {:?}", item_kind)
+                        })?;
 
-                    plan.extend(plan_);
-                    plan.push_back(move_to_adj(
-                        *pawn_tile,
-                        building_spec.top_left,
-                    ));
+                    if let Some(move_to) =
+                        move_to_adj(item_pos, building_spec.top_left)
+                    {
+                        plan.push_back(move_to);
+                    }
                     plan.push_back(ToilKind::StoreItem {
                         item_id,
-                        target_fixture_id: None,
-                        fixture_pos: building_spec.top_left,
+                        target_fixture_id: construction_site_id,
                     });
+
+                    return Ok(plan);
                 }
             }
 
             // Build
+            let mut plan = VecDeque::with_capacity(2);
+            if let Some(move_to) =
+                move_to_adj(*pawn_tile, building_spec.top_left)
+            {
+                plan.push_back(move_to);
+            }
+            plan.push_back(ToilKind::Build {
+                fixture_id: construction_site_id,
+            });
 
-            todo!()
+            Ok(plan)
         }
     }
 }
@@ -207,13 +216,15 @@ pub fn build_eat_plan(
     pawn_tile: &TileId,
     items: &ItemQuery<&ItemRelation>,
     fixtures: &FixtureQuery,
+    item_reservations: &Reserver,
 ) -> Result<VecDeque<ToilKind>, String> {
-    let Some((mut plan, item_id)) = build_acquire_item_plan(
+    let Some((mut plan, item_id, _)) = build_acquire_item_plan(
         pawn,
         pawn_tile,
         &ItemKind::Berry,
         items,
         fixtures,
+        item_reservations,
     ) else {
         return Err(format!("Failed to acquire item {:?}", ItemKind::Berry));
     };
@@ -227,9 +238,11 @@ fn build_acquire_item_plan(
     item_kind: &ItemKind,
     items: &ItemQuery<&ItemRelation>,
     fixtures: &FixtureQuery,
-) -> Option<(VecDeque<ToilKind>, ItemId)> {
+    item_reservations: &Reserver,
+) -> Option<(VecDeque<ToilKind>, ItemId, TileId)> {
     if let Some(item_id) = pawn.inventory.find(*item_kind) {
-        return Some((VecDeque::new(), item_id));
+        item_reservations.reserve(item_id);
+        return Some((VecDeque::new(), item_id, *pawn_pos));
     }
 
     let on_ground = nearest_item_on_ground(item_kind, pawn_pos, items);
@@ -242,24 +255,22 @@ fn build_acquire_item_plan(
         ItemRelation::OnGround(tile_id) => *tile_id,
     };
 
-    Some((
-        VecDeque::from_iter([
-            ToilKind::MoveTo {
-                target: item_pos,
-                path: manhattan_path(*pawn_pos, item_pos),
-            },
-            ToilKind::PickUpItem { item_id },
-        ]),
-        item_id,
-    ))
+    let mut plan = VecDeque::with_capacity(2);
+    if let Some(move_to) = move_to_adj(*pawn_pos, item_pos) {
+        plan.push_back(move_to);
+    }
+    plan.push_back(ToilKind::PickUpItem { item_id });
+    item_reservations.reserve(item_id);
+
+    Some((plan, item_id, item_pos))
 }
 
-pub fn move_to_adj(start: TileId, end: TileId) -> ToilKind {
+pub fn move_to_adj(start: TileId, end: TileId) -> Option<ToilKind> {
     let path = manhattan_path_adj(start, end);
-    ToilKind::MoveTo {
-        target: *path.back().unwrap(),
-        path,
-    }
+    let Some(target) = path.back().copied() else {
+        return None;
+    };
+    Some(ToilKind::MoveTo { target, path })
 }
 
 pub fn manhattan_path_adj(start: TileId, end: TileId) -> VecDeque<TileId> {

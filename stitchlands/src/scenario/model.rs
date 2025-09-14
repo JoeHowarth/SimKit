@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use simkit_core::grid::TileId;
 
-use crate::tasks::TaskSpecKind;
+use crate::{model::ItemKind, tasks::TaskSpecKind};
 
 // Basic map/tiles; unused in 0.b beyond size
 // On-disk files are ScenarioDef (serde-renamed to Scenario)
@@ -65,7 +65,11 @@ impl Default for PawnDef {
             pos: None,
             sleep: Some(100),
             hunger: Some(100),
-            priorities: vec![TaskSpecKind::Harvest, TaskSpecKind::Plant],
+            priorities: vec![
+                TaskSpecKind::Harvest,
+                TaskSpecKind::Plant,
+                TaskSpecKind::Build,
+            ],
             inventory: vec![],
         }
     }
@@ -74,7 +78,7 @@ impl Default for PawnDef {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ItemDef {
     pub id: Option<u64>,
-    pub kind: String,
+    pub kind: ItemKind,
     pub qty: u32,
     pub pos: Option<TileId>,
 }

@@ -363,7 +363,7 @@ fn spawn_pawns_from_def(
         let mut inventory = Inventory::default();
         for it in p.inventory.iter() {
             let typed_item = item_index.alloc(it.id.map(ItemId));
-            let kind = ItemKind::from_str(&it.kind).unwrap();
+            let kind = it.kind;
             let entity = commands
                 .spawn((
                     crate::WorldTag,
@@ -417,7 +417,7 @@ fn spawn_items_from_def(
 
     for it in items.iter() {
         let typed = index.alloc(it.id.map(ItemId));
-        let kind = ItemKind::from_str(&it.kind).unwrap();
+        let kind = it.kind;
         let pos = match it.pos {
             Some(pos) => unique_pos(&mut used_positions, pos, &mut pgen),
             None => unique_pos(&mut used_positions, pgen(), &mut pgen),
@@ -470,7 +470,7 @@ fn spawn_fixtures_from_def(
         let mut inventory = Inventory::default();
         for def in it.inventory.iter() {
             let typed_item = item_index.alloc(def.id.map(ItemId));
-            let kind = ItemKind::from_str(&def.kind).unwrap();
+            let kind = def.kind;
             let entity = commands
                 .spawn((
                     crate::WorldTag,
@@ -619,7 +619,7 @@ mod tests {
                     terrain: model::Terrain::Grass,
                     item: Some(model::ItemDef {
                         id: None,
-                        kind: "Berry".into(),
+                        kind: ItemKind::Berry,
                         qty: 1,
                         pos: None,
                     }),
@@ -667,7 +667,7 @@ mod tests {
                     terrain: model::Terrain::Grass,
                     item: Some(model::ItemDef {
                         id: None,
-                        kind: "Berry".into(),
+                        kind: ItemKind::Berry,
                         qty: 1,
                         pos: None,
                     }),
@@ -761,7 +761,7 @@ mod tests {
                 pos: Some(TileId::new(2, 2)),
                 inventory: vec![model::ItemDef {
                     id: Some(3000),
-                    kind: "Berry".into(),
+                    kind: ItemKind::Berry,
                     qty: 1,
                     pos: None,
                 }],
@@ -804,7 +804,7 @@ mod tests {
                     terrain: model::Terrain::Grass,
                     item: Some(model::ItemDef {
                         id: None,
-                        kind: "Berry".into(),
+                        kind: ItemKind::Berry,
                         qty: 1,
                         pos: None,
                     }),
@@ -864,7 +864,7 @@ mod tests {
                 pos: Some(TileId::new(1, 1)),
                 inventory: vec![model::ItemDef {
                     id: None,
-                    kind: "Berry".into(),
+                    kind: ItemKind::Berry,
                     qty: 1,
                     pos: None,
                 }],

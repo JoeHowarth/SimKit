@@ -4,6 +4,7 @@ use bevy::prelude::*;
 use simkit_core::{
     fixed_point::Q40p24,
     grid::{TileId, index::TileMapIndex},
+    ids::SimId,
 };
 
 use crate::{
@@ -40,13 +41,11 @@ pub fn evaluate_job(
     ) = params.p0();
 
     let mut job_mutations: Vec<(PawnId, Job)> = Vec::new();
-    let mut completed_tasks: Vec<TaskId> = Vec::new();
     let task_board = world.resource::<TaskBoard>();
 
     for toil_event in toil_events.read() {
         debug!("Toil event: {:?}", toil_event);
 
-        let mut attempt_replan = false;
         let job: &Job = world.comp(&toil_event.pawn_id);
 
         let mut replan = || {
@@ -65,14 +64,15 @@ pub fn evaluate_job(
                         retries: job.retries + 1,
                     },
                 ));
+                return;
             }
             job_mutations.push((toil_event.pawn_id, Job::default()));
             warn!("Failed to replan job: {:?}", job.kind);
         };
 
         // Falls through means task is done
-        match toil_event.result {
-            ToilResult::Done => {
+        match &toil_event.failure_reason {
+            None => {
                 debug!("Toil done: {:?}", toil_event.toil);
 
                 if !job.plan.is_empty() {
@@ -90,14 +90,16 @@ pub fn evaluate_job(
                     }
                 }
             }
-            ToilResult::Failed(_) => {
-                debug!("Toil failed: {:?}", toil_event.toil);
+            Some(failure_reason) => {
+                debug!(
+                    "Toil failed: {:?} reason: {failure_reason}",
+                    toil_event.toil
+                );
                 if job.retries < 2 {
                     replan();
                     continue;
                 }
             }
-            ToilResult::Running => unreachable!(),
         }
 
         job_mutations.push((toil_event.pawn_id, Job::default()));
@@ -106,7 +108,7 @@ pub fn evaluate_job(
     let (mut completed_tasks, mut pawns) = params.p1();
 
     for (pawn_id, new_job) in job_mutations {
-        let (mut tile, mut job) = pawns.get_mut(&pawn_id);
+        let (_, mut job) = pawns.get_mut(&pawn_id);
 
         if new_job.kind == JobKind::None
             && let JobKind::Task(task_id, _) = job.kind
@@ -161,7 +163,7 @@ pub fn step_jobs(
             toil_events.write(ToilEvent {
                 pawn_id: pawn.id,
                 toil,
-                result: toil_result,
+                failure_reason: toil_result.failure_reason(),
             });
         }
     }
@@ -300,24 +302,21 @@ pub fn step_toil(
             pawn.inventory.remove(seed_id);
 
             // Create new fixture
-            let fixture_id = fixtures.index.alloc(None);
-            let fixture_entity = commands
-                .spawn((
-                    Fixture {
-                        id: fixture_id,
-                        kind: FixtureKind::BerryBush,
-                        inventory: Inventory::default(),
-                    },
-                    *target_tile_id,
-                    Harvestable {
-                        countdown: 100,
-                        seq_num: 0,
-                    },
-                    Name::new(format!("BerryBush#{}", fixture_id.0)),
-                ))
-                .id();
-            fixtures.index.insert(fixture_id, fixture_entity);
-            fixture_tile_index.move_id(None, *target_tile_id, fixture_id);
+            Fixture::spawn(
+                commands,
+                &mut fixtures.index,
+                &mut *fixture_tile_index,
+                Fixture {
+                    id: FixtureId::dummy(),
+                    kind: FixtureKind::BerryBush,
+                    inventory: Inventory::default(),
+                },
+                *target_tile_id,
+                Harvestable {
+                    countdown: 100,
+                    seq_num: 0,
+                },
+            );
 
             ToilResult::Done
         }
@@ -408,12 +407,75 @@ pub fn step_toil(
                 ToilResult::Done
             }
         }
-        ToilKind::PlaceConstructionSite { building_spec } => todo!(),
-        ToilKind::Build { fixture_id } => todo!(),
+        ToilKind::PlaceConstructionSite { building_spec } => {
+            // Create new fixture
+            Fixture::spawn(
+                commands,
+                &mut fixtures.index,
+                &mut *fixture_tile_index,
+                Fixture {
+                    id: FixtureId::dummy(),
+                    kind: FixtureKind::ConstructionSite,
+                    inventory: Inventory::default(),
+                },
+                building_spec.top_left,
+                ConstructionSite {
+                    building_spec: building_spec.clone(),
+                    work_left: building_spec.work_units,
+                },
+            );
+
+            ToilResult::Done
+        }
+        ToilKind::Build { fixture_id } => {
+            let (mut fixture, (_, _, construction_site)) =
+                fixtures.get_mut(fixture_id);
+            assert_eq!(fixture.kind, FixtureKind::ConstructionSite);
+            assert_eq!(construction_site.is_some(), true);
+            let mut construction_site = construction_site.unwrap();
+
+            construction_site.work_left =
+                construction_site.work_left.saturating_sub(1);
+            if construction_site.work_left == 0 {
+                // The fixture becomes the intended kind once built
+                fixture.kind =
+                    construction_site.building_spec.fixture_kind.clone();
+
+                // Remove consumed construction materials from inventory
+                for (item_kind, qty) in
+                    &construction_site.building_spec.required_items
+                {
+                    for _ in 0..*qty {
+                        let item_id =
+                            fixture.inventory.find(*item_kind).unwrap();
+                        fixture.inventory.remove(&item_id);
+                    }
+                }
+
+                // TODO: spawn any other components that the built fixture
+                // should have
+                commands
+                    .entity(fixtures.entity(fixture_id))
+                    .remove::<ConstructionSite>();
+
+                return ToilResult::Done;
+            }
+
+            ToilResult::Running
+        }
         ToilKind::StoreItem {
             item_id,
             target_fixture_id,
-            fixture_pos,
-        } => todo!(),
+        } => {
+            assert!(pawn.inventory.contains(item_id), "Item not in inventory");
+            let (item, mut item_relation) = items.get_mut(item_id);
+            assert_eq!(*item_relation, ItemRelation::CarriedBy(pawn.id));
+            pawn.inventory.remove(item_id);
+
+            let (mut fixture, _) = fixtures.get_mut(target_fixture_id);
+            fixture.inventory.add((*item_id, item.kind));
+            *item_relation = ItemRelation::InFixture(*target_fixture_id);
+            ToilResult::Done
+        }
     }
 }

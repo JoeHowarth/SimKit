@@ -4,7 +4,7 @@ use super::*;
 use crate::{
     model::queries::WorldExt,
     scenario::{
-        model::{FixtureDef, MapDef, MapSize, PawnDef, ScenarioDef},
+        model::{FixtureDef, ItemDef, MapDef, MapSize, PawnDef, ScenarioDef},
         testutil::app_with_scenario,
     },
     tasks::{TaskSpecKind, TaskStatus, job_planning::manhattan_path},
@@ -829,4 +829,79 @@ fn test_two_pawns() {
     assert_eq!(pawn.inventory.of_kind(ItemKind::Berry).count(), 0);
     let pawn = app.world().get_simid(&PawnId(2)).0;
     assert_eq!(pawn.inventory.of_kind(ItemKind::Berry).count(), 2);
+}
+
+#[test_log::test]
+fn test_construction() {
+    let def = ScenarioDef {
+        map: MapDef {
+            size: MapSize { x: 5, y: 5 },
+            tiles: vec![],
+            schematic: Some(
+                "
+                    .  P1 .  .  .  
+                    .  .  .  .  .  
+                    .  .  .  .  .  
+                    .  .  .  .  .  
+                    .  .  .  .  .  
+                "
+                .to_owned(),
+            ),
+        },
+        sim_seed: Some(1),
+        pawns: vec![PawnDef {
+            id: Some(1),
+            name: Some("Veronica".into()),
+            inventory: vec![ItemDef {
+                id: Some(1),
+                kind: ItemKind::Wood,
+                qty: 1,
+                pos: Some(TileId::new(0, 0)),
+            }],
+            ..Default::default()
+        }],
+        ..default()
+    };
+
+    let mut app = app_with_scenario(def);
+    let mut task_board = app.world_mut().resource_mut::<TaskBoard>();
+    let top_left = TileId::new(2, 2);
+    let task_id = task_board.add_task(TaskSpec::Build(BuildingSpec {
+        top_left,
+        dim: UVec2::new(1, 1),
+        fixture_kind: FixtureKind::Cabin,
+        required_items: vec![(ItemKind::Wood, 3)],
+        work_units: 3,
+    }));
+    for i in 0..20 {
+        warn!("Update {i}");
+        app.update();
+    }
+
+    let task_board = app.world().resource::<TaskBoard>();
+    debug!("task_board: {:#?}", task_board);
+    assert_eq!(task_board.tasks.len(), 1);
+    assert_eq!(task_board.tasks_by_status(TaskStatus::Pending).count(), 0);
+    assert_eq!(task_board.tasks_by_status(TaskStatus::Done).count(), 1);
+    assert_eq!(
+        task_board
+            .tasks_by_status(TaskStatus::Assigned(PawnId(1)))
+            .count(),
+        0
+    );
+    assert_eq!(
+        task_board.tasks.get(&task_id).unwrap().status,
+        TaskStatus::Done
+    );
+
+    let fixture_tile_index = app.world().resource::<TileMapIndex<FixtureId>>();
+    let fixture_id = fixture_tile_index.get(top_left).unwrap();
+    let world = app.world();
+    let (fixture, e) = world.get_simid(&fixture_id);
+    assert_eq!(fixture.kind, FixtureKind::Cabin);
+    assert_eq!(
+        world.entity(e).get::<ConstructionSite>(),
+        None,
+        "ConstructionSite should be removed"
+    );
 }

@@ -255,9 +255,8 @@ impl TaskSpec {
         };
 
         let distance = manhattan(*pos, build_spec.top_left);
-        // Some(distance_to_score(distance))
 
-        todo!()
+        Some(distance_to_score(distance))
     }
 
     fn harvest_priority(

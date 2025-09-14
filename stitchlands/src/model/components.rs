@@ -2,7 +2,12 @@ use std::str::FromStr;
 
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
-use simkit_core::{fixed_point::Q40p24, grid::TileId, impl_hassimid};
+use simkit_core::{
+    fixed_point::Q40p24,
+    grid::{TileId, index::TileMapIndex},
+    ids::IdIndex,
+    impl_hassimid,
+};
 
 use crate::{
     WorldTag,
@@ -73,7 +78,8 @@ pub struct Item {
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
 pub enum ItemKind {
     Berry,
-    // Untyped(&'static str),
+    Wood,
+    Nails,
 }
 
 impl ItemKind {
@@ -81,7 +87,7 @@ impl ItemKind {
     fn has_nutrition(&self) -> Option<Q40p24> {
         match self {
             ItemKind::Berry => Some(Q40p24::ONE),
-            // ItemKind::Untyped(_) => None,
+            ItemKind::Wood | ItemKind::Nails => None,
         }
     }
 
@@ -89,7 +95,7 @@ impl ItemKind {
     fn plantable_fixture(&self) -> Option<FixtureKind> {
         match self {
             ItemKind::Berry => Some(FixtureKind::BerryBush),
-            // ItemKind::Untyped(_) => None,
+            ItemKind::Wood | ItemKind::Nails => None,
         }
     }
 }
@@ -100,7 +106,8 @@ impl FromStr for ItemKind {
         let (s, _reset) = s.split_once(':').unwrap_or((s, ""));
         match s {
             "Berry" => Ok(Self::Berry),
-            // "Untyped" => Ok(Self::Untyped(reset.to_string())),
+            "Wood" => Ok(Self::Wood),
+            "Nails" => Ok(Self::Nails),
             _ => Err(format!("Invalid ItemKind: {s}")),
         }
     }
@@ -168,6 +175,25 @@ pub struct Fixture {
     pub inventory: Inventory,
 }
 
+impl Fixture {
+    pub fn spawn(
+        commands: &mut Commands,
+        index: &mut IdIndex<FixtureId>,
+        tile_index: &mut TileMapIndex<FixtureId>,
+        mut fixture: Fixture,
+        pos: TileId,
+        bundle: impl Bundle,
+    ) -> FixtureId {
+        let fixture_id = index.alloc(None);
+        fixture.id = fixture_id;
+        let name = Name::new(format!("{}#{}", fixture.kind, fixture_id.0));
+        let fixture_entity = commands.spawn((fixture, pos, bundle, name)).id();
+        index.insert(fixture_id, fixture_entity);
+        tile_index.move_id(None, pos, fixture_id);
+        fixture_id
+    }
+}
+
 /// How many work units are left to complete the build
 #[derive(Component, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConstructionSite {
@@ -194,6 +220,12 @@ impl FromStr for FixtureKind {
             "BerryBush" => Ok(Self::BerryBush),
             _ => Err(format!("Invalid FixtureKind: {s}")),
         }
+    }
+}
+
+impl std::fmt::Display for FixtureKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
     }
 }
 

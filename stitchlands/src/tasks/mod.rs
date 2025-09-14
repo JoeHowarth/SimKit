@@ -1,9 +1,10 @@
-use std::collections::VecDeque;
+use std::{collections::VecDeque, sync::Arc};
 
 use bevy::{
     platform::collections::{HashMap, HashSet},
     prelude::*,
 };
+use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use simkit_core::{
     grid::{TileId, index::TileMapIndex},
@@ -37,6 +38,7 @@ impl Plugin for TaskPlugin {
             .add_event::<CompletedTask>()
             .add_event::<ToilEvent>()
             .add_event::<NewTask>()
+            .init_resource::<ItemReservations>()
             .add_systems(PreUpdate, handle_new_task)
             .add_systems(
                 dbg!(StepSystemLabel::default()),
@@ -180,8 +182,7 @@ pub enum ToilKind {
     },
     StoreItem {
         item_id: ItemId,
-        target_fixture_id: Option<FixtureId>,
-        fixture_pos: TileId,
+        target_fixture_id: FixtureId,
     },
     Plant {
         seed_id: ItemId,
@@ -205,11 +206,20 @@ pub enum ToilResult {
     Running,
 }
 
+impl ToilResult {
+    pub fn failure_reason(&self) -> Option<String> {
+        match self {
+            ToilResult::Failed(reason) => Some(reason.clone()),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Event, Debug, PartialEq, Eq)]
 pub struct ToilEvent {
     pub pawn_id: PawnId,
     pub toil: ToilKind,
-    pub result: ToilResult,
+    pub failure_reason: Option<String>,
 }
 
 #[derive(Resource, Debug)]
@@ -287,6 +297,56 @@ impl TaskBoard {
         self.tasks
             .values()
             .filter(move |task| task.status == status)
+    }
+}
+
+#[derive(Resource, Debug, Default, Clone)]
+pub struct ItemReservations {
+    pub by_item: Arc<DashMap<ItemId, TaskId>>,
+    pub by_task: Arc<DashMap<TaskId, HashSet<ItemId>>>,
+}
+
+pub struct Reserver {
+    pub item_reservations: ItemReservations,
+    pub task_id: Option<TaskId>,
+}
+
+impl Reserver {
+    pub fn reserve(&self, item_id: ItemId) -> bool {
+        if let Some(task_id) = self.task_id {
+            return self.item_reservations.reserve(item_id, task_id);
+        }
+        self.item_reservations.available(item_id)
+    }
+}
+
+impl ItemReservations {
+    pub fn reserver(&self, task_id: Option<TaskId>) -> Reserver {
+        Reserver {
+            item_reservations: self.clone(),
+            task_id,
+        }
+    }
+
+    pub fn available(&self, item_id: ItemId) -> bool {
+        self.by_item.contains_key(&item_id)
+    }
+
+    pub fn reserve(&self, item_id: ItemId, task_id: TaskId) -> bool {
+        if self.by_item.contains_key(&item_id) {
+            return false;
+        }
+
+        self.by_item.insert(item_id, task_id);
+        self.by_task.entry(task_id).or_default().insert(item_id);
+        true
+    }
+
+    pub fn free_task(&self, task_id: TaskId) {
+        let (_task_id, items) = self.by_task.remove(&task_id).unwrap();
+        for item_id in items {
+            self.by_item.remove(&item_id);
+        }
     }
 }
 

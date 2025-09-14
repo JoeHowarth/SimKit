@@ -10,6 +10,10 @@ pub trait SimId:
     type Type: HasSimId;
     fn from_u64(v: u64) -> Self;
     fn to_u64(self) -> u64;
+
+    fn dummy() -> Self {
+        Self::from_u64(u64::MAX - 10)
+    }
 }
 
 pub trait HasSimId:
