@@ -11,13 +11,14 @@ use simkit_core::{
 };
 
 use super::*;
+use crate::tasks::reservations::Reservations;
 
 #[derive(SystemParam)]
 pub struct IdQuery<
     'w,
     's,
     C: HasSimId,
-    D: bevy::ecs::query::QueryData + 'static,
+    D: QueryData + 'static,
     F: QueryFilter + 'static = (),
 > {
     pub query: Query<'w, 's, (&'static C, D), F>,
@@ -29,7 +30,7 @@ pub struct IdQueryMut<
     'w,
     's,
     C: HasSimId,
-    D: bevy::ecs::query::QueryData + 'static,
+    D: QueryData + 'static,
     F: QueryFilter + 'static = (),
 > where
     C: Component<Mutability = bevy::ecs::component::Mutable>,
@@ -152,19 +153,22 @@ impl WorldExt for World {
     }
 }
 
-pub fn neartest_item_pos(
+pub fn nearest_item_pos(
     pawn: &Pawn,
     pawn_pos: &TileId,
     item_kind: &ItemKind,
     items: &ItemQuery<&ItemRelation>,
     fixtures: &FixtureQuery,
+    reservations: &Reservations,
 ) -> Option<TileId> {
     if pawn.inventory.find(*item_kind).is_some() {
         return Some(*pawn_pos);
     }
 
-    let on_ground = nearest_item_on_ground(item_kind, pawn_pos, items);
-    let fixture = nearest_fixture_with_item(item_kind, pawn_pos, fixtures);
+    let on_ground =
+        nearest_item_on_ground(item_kind, pawn_pos, items, reservations);
+    let fixture =
+        nearest_fixture_with_item(item_kind, pawn_pos, fixtures, reservations);
 
     let (item_id, _dist) = closer_option_item_locator(on_ground, fixture)?;
     Some(match items.get(&item_id).1 {
@@ -182,6 +186,7 @@ pub fn nearest_item_on_ground(
     target_kind: &ItemKind,
     current_pos: &TileId,
     items: &ItemQuery<&ItemRelation>,
+    reservations: &Reservations,
 ) -> Option<(ItemId, u32)> {
     // find nearest item on ground that matches item
     let mut nearest = None;
@@ -189,6 +194,10 @@ pub fn nearest_item_on_ground(
         let ItemRelation::OnGround(item_pos) = item_rel else {
             continue;
         };
+
+        if reservations.is_reserved(item.id) {
+            continue;
+        }
 
         if item.kind == *target_kind {
             let distance = manhattan(*current_pos, *item_pos);
@@ -210,13 +219,15 @@ pub fn nearest_fixture_with_item(
     target_kind: &ItemKind,
     current_pos: &TileId,
     fixtures: &FixtureQuery,
+    reservations: &Reservations,
 ) -> Option<(ItemId, u32)> {
     // find nearest fixture that contains item
     let mut nearest = None;
     for (fixture, (fixture_pos, _, _)) in fixtures.query.iter() {
         let Some(loc) = fixture
             .inventory
-            .find(*target_kind)
+            .of_kind(*target_kind)
+            .find(|id| !reservations.is_reserved(*id))
             .map(|id| (id, *current_pos))
         else {
             continue;

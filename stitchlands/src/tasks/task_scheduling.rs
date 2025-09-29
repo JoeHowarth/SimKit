@@ -15,6 +15,7 @@ pub(super) fn schedule_pawns(
     fixtures: FixtureQuery,
     items: ItemQuery<&ItemRelation>,
     fixture_tile_index: Res<TileMapIndex<FixtureId>>,
+    reservations: Res<Reservations>,
 ) {
     trace!("Begin schedule_pawns");
     // TODO: use a stable ordering of pawns
@@ -32,18 +33,15 @@ pub(super) fn schedule_pawns(
 
                 // Build the preempt plan first; only switch if planning
                 // succeeds
-                match preempt
-                    .build_plan(
-                        pawn,
-                        pos,
-                        &task_board,
-                        &items,
-                        &fixtures,
-                        &fixture_tile_index,
-                    )
-                    .inspect_err(|e| {
-                        error!("Failed to build preempt plan: {}", e)
-                    }) {
+                match preempt.build_plan(
+                    pawn,
+                    pos,
+                    &task_board,
+                    &reservations,
+                    &items,
+                    &fixtures,
+                    &fixture_tile_index,
+                ) {
                     Ok(plan) => {
                         // Return the current task to pending after we know the
                         // new plan is viable
@@ -51,11 +49,7 @@ pub(super) fn schedule_pawns(
                             task_board.return_to_pending(*task_id);
                         }
 
-                        *job = Job {
-                            kind: preempt,
-                            plan,
-                            retries: 0,
-                        };
+                        *job = Job::new(preempt, plan);
                         info!("Preempted job: {:?}", job);
                     }
                     Err(_) => {
@@ -80,6 +74,7 @@ pub(super) fn schedule_pawns(
             &fixtures,
             &items,
             &fixture_tile_index,
+            &reservations,
         );
 
         // If the job is a task, set the task to assigned
@@ -121,16 +116,13 @@ fn next_job_is_needs(
     pos: &TileId,
     fixtures: &FixtureQuery,
     items: &ItemQuery<&ItemRelation>,
+    reservations: &Reservations,
 ) -> Option<Job> {
     // Sleep and eat threshold are lower than when we have a job
     if pawn.hunger < Q40p24::from(60) {
-        match build_eat_plan(pawn, pos, items, fixtures) {
+        match build_eat_plan(pawn, pos, items, fixtures, reservations) {
             Ok(plan) => {
-                return Some(Job {
-                    kind: JobKind::Eat,
-                    plan,
-                    retries: 0,
-                });
+                return Some(Job::new(JobKind::Eat, plan));
             }
             Err(e) => {
                 warn!("Eat auto job failed to plan: {e}");
@@ -139,13 +131,9 @@ fn next_job_is_needs(
     }
 
     if pawn.sleep < Q40p24::from(60) {
-        match build_sleep_plan(pos, fixtures) {
+        match build_sleep_plan(pos, fixtures, reservations) {
             Ok(plan) => {
-                return Some(Job {
-                    kind: JobKind::Sleep,
-                    plan,
-                    retries: 0,
-                });
+                return Some(Job::new(JobKind::Sleep, plan));
             }
             Err(e) => {
                 warn!("Sleep auto job failed to plan: {e}");
@@ -164,9 +152,12 @@ fn choose_next_job(
     fixtures: &FixtureQuery,
     items: &ItemQuery<&ItemRelation>,
     fixture_tile_index: &TileMapIndex<FixtureId>,
+    reservations: &Reservations,
 ) -> Job {
     // Check if needs are urgent
-    if let Some(job) = next_job_is_needs(pawn, pos, fixtures, items) {
+    if let Some(job) =
+        next_job_is_needs(pawn, pos, fixtures, items, reservations)
+    {
         info!("Next job is needs: {:?}", job);
         return job;
     }
@@ -180,8 +171,13 @@ fn choose_next_job(
         let mut tasks = pending
             .pending_tasks_by_kind(kind)
             .filter_map(|task| {
-                let priority =
-                    task.spec.priority(pawn, pos, fixtures, items)?;
+                let priority = task.spec.priority(
+                    pawn,
+                    pos,
+                    fixtures,
+                    items,
+                    reservations,
+                )?;
                 Some((priority, task))
             })
             .collect::<Vec<_>>();
@@ -197,6 +193,7 @@ fn choose_next_job(
                 items,
                 fixtures,
                 fixture_tile_index,
+                &reservations,
             ) {
                 Ok(plan) => {
                     let kind = JobKind::Task(task.id, task.spec.kind());
@@ -204,11 +201,7 @@ fn choose_next_job(
                         "Built plan for task {:?} ({:?}): {:?}",
                         task.spec, task.id, plan
                     );
-                    return Job {
-                        kind,
-                        plan,
-                        retries: 0,
-                    };
+                    return Job::new(kind, plan);
                 }
                 Err(e) => {
                     info!(
@@ -231,11 +224,12 @@ impl TaskSpec {
         pos: &TileId,
         fixtures: &FixtureQuery,
         items: &ItemQuery<&ItemRelation>,
+        reservations: &Reservations,
     ) -> Option<Q40p24> {
         match self {
             TaskSpec::Harvest { .. } => self.harvest_priority(pos, fixtures),
             TaskSpec::Plant(_, _) => {
-                self.plant_priority(pawn, pos, items, fixtures)
+                self.plant_priority(pawn, pos, items, fixtures, reservations)
             }
             TaskSpec::Build(..) => {
                 self.build_priority(pawn, pos, fixtures, items)
@@ -283,12 +277,19 @@ impl TaskSpec {
         pawn_pos: &TileId,
         items: &ItemQuery<&ItemRelation>,
         fixtures: &FixtureQuery,
+        reservations: &Reservations,
     ) -> Option<Q40p24> {
         let TaskSpec::Plant(fixture_pos, item_kind) = self else {
             panic!("Plant priority called for non-plant task");
         };
-        let item_pos =
-            neartest_item_pos(pawn, pawn_pos, item_kind, items, fixtures)?;
+        let item_pos = nearest_item_pos(
+            pawn,
+            pawn_pos,
+            item_kind,
+            items,
+            fixtures,
+            reservations,
+        )?;
         let distance_to_get_item = manhattan(*pawn_pos, item_pos);
 
         let distance = manhattan(*fixture_pos, item_pos);

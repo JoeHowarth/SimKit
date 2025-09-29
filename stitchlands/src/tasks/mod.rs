@@ -12,10 +12,15 @@ use simkit_core::{
     impl_hassimid,
 };
 
-use crate::{StepSystemLabel, model::*};
+use crate::{
+    StepSystemLabel,
+    model::*,
+    tasks::reservations::{HeldReservations, Reservations},
+};
 
 pub mod job_execution;
 pub mod job_planning;
+pub mod reservations;
 pub mod task_scheduling;
 #[cfg(test)]
 mod tests;
@@ -38,7 +43,7 @@ impl Plugin for TaskPlugin {
             .add_event::<CompletedTask>()
             .add_event::<ToilEvent>()
             .add_event::<NewTask>()
-            .init_resource::<ItemReservations>()
+            .init_resource::<Reservations>()
             .add_systems(PreUpdate, handle_new_task)
             .add_systems(
                 dbg!(StepSystemLabel::default()),
@@ -136,8 +141,33 @@ pub struct WorkPriority(pub Vec<TaskSpecKind>);
 #[derive(Component, Debug, Default)]
 pub struct Job {
     pub kind: JobKind,
-    pub plan: VecDeque<ToilKind>,
+    pub plan: Option<Plan>,
     pub retries: u8,
+}
+
+impl Job {
+    pub fn new(kind: JobKind, plan: Plan) -> Self {
+        Self {
+            kind,
+            plan: Some(plan),
+            retries: 0,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct Plan {
+    pub toils: VecDeque<ToilKind>,
+    pub reservations: HeldReservations,
+}
+
+impl Plan {
+    pub fn new(res: &Reservations) -> Self {
+        Self {
+            toils: VecDeque::new(),
+            reservations: HeldReservations::new(res),
+        }
+    }
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
@@ -164,9 +194,6 @@ pub enum ToilKind {
     },
     Build {
         fixture_id: FixtureId,
-    },
-    ReserveItem {
-        item: ItemId,
     },
     MoveTo {
         target: TileId,
@@ -197,6 +224,15 @@ pub enum ToilKind {
     Harvest {
         fixture_id: FixtureId,
     },
+}
+
+impl ToilKind {
+    pub fn move_to_target(&self) -> Option<TileId> {
+        let ToilKind::MoveTo { target, .. } = self else {
+            return None;
+        };
+        Some(*target)
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -297,56 +333,6 @@ impl TaskBoard {
         self.tasks
             .values()
             .filter(move |task| task.status == status)
-    }
-}
-
-#[derive(Resource, Debug, Default, Clone)]
-pub struct ItemReservations {
-    pub by_item: Arc<DashMap<ItemId, TaskId>>,
-    pub by_task: Arc<DashMap<TaskId, HashSet<ItemId>>>,
-}
-
-pub struct Reserver {
-    pub item_reservations: ItemReservations,
-    pub task_id: Option<TaskId>,
-}
-
-impl Reserver {
-    pub fn reserve(&self, item_id: ItemId) -> bool {
-        if let Some(task_id) = self.task_id {
-            return self.item_reservations.reserve(item_id, task_id);
-        }
-        self.item_reservations.available(item_id)
-    }
-}
-
-impl ItemReservations {
-    pub fn reserver(&self, task_id: Option<TaskId>) -> Reserver {
-        Reserver {
-            item_reservations: self.clone(),
-            task_id,
-        }
-    }
-
-    pub fn available(&self, item_id: ItemId) -> bool {
-        self.by_item.contains_key(&item_id)
-    }
-
-    pub fn reserve(&self, item_id: ItemId, task_id: TaskId) -> bool {
-        if self.by_item.contains_key(&item_id) {
-            return false;
-        }
-
-        self.by_item.insert(item_id, task_id);
-        self.by_task.entry(task_id).or_default().insert(item_id);
-        true
-    }
-
-    pub fn free_task(&self, task_id: TaskId) {
-        let (_task_id, items) = self.by_task.remove(&task_id).unwrap();
-        for item_id in items {
-            self.by_item.remove(&item_id);
-        }
     }
 }
 

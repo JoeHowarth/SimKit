@@ -60,7 +60,7 @@ pub fn evaluate_job(
                     toil_event.pawn_id,
                     Job {
                         kind: job.kind,
-                        plan,
+                        plan: Some(plan),
                         retries: job.retries + 1,
                     },
                 ));
@@ -75,7 +75,7 @@ pub fn evaluate_job(
             None => {
                 debug!("Toil done: {:?}", toil_event.toil);
 
-                if !job.plan.is_empty() {
+                if !job.plan.as_ref().unwrap().toils.is_empty() {
                     continue;
                 }
 
@@ -143,7 +143,8 @@ pub fn step_jobs(
         }
 
         // Run the current toil
-        let toil = job.plan.front_mut().expect("Job has no toil");
+        let plan = job.plan.as_mut().unwrap();
+        let toil = plan.toils.front_mut().expect("Job has no toil");
         let toil_result = step_toil(
             &mut commands,
             toil,
@@ -159,7 +160,7 @@ pub fn step_jobs(
         debug!("Toil result: {:?}", toil_result);
         if toil_result != ToilResult::Running {
             debug!("Toil done");
-            let toil = job.plan.pop_front().expect("Job has no toil");
+            let toil = plan.toils.pop_front().expect("Job has no toil");
             toil_events.write(ToilEvent {
                 pawn_id: pawn.id,
                 toil,
@@ -186,10 +187,6 @@ pub fn step_toil(
 ) -> ToilResult {
     debug!(?toil, "step_toil");
     match toil {
-        ToilKind::ReserveItem { item: _ } => {
-            // We will implement this later, noop for now
-            ToilResult::Done
-        }
         ToilKind::MoveTo { target, path } => {
             if let Some(next_tile) = path.pop_front() {
                 assert!(

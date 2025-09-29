@@ -77,9 +77,10 @@ fn test_build_plan_for_task() {
     let mut q = app.world_mut().query::<(&TileId, &Pawn, &Job)>();
     {
         let (tile, pawn, job) = q.get(app.world(), e).unwrap();
+        let plan = job.plan.unwrap();
 
         assert_eq!(job.kind, JobKind::None);
-        assert!(job.plan.is_empty());
+        assert!(plan.toils.is_empty());
 
         // Pawn starts at (1, 0) from the schematic
         assert_eq!(*tile, TileId::new(1, 0));
@@ -90,12 +91,13 @@ fn test_build_plan_for_task() {
     app.update();
     {
         let (tile, _, job) = q.get(app.world(), e).unwrap();
+        let plan = job.plan.unwrap();
 
         // Job assigned and plan created
         assert_eq!(job.kind, JobKind::Task(task_id, TaskSpecKind::Harvest));
 
         // Current toil should be MoveTo towards tile (2,2)
-        match &job.plan.front() {
+        match &plan.toils.front() {
             Some(ToilKind::MoveTo { target, path }) => {
                 assert_eq!(*target, TileId::new(2, 2));
                 // After one step, two steps remain: (2,1), (2,2)
@@ -105,8 +107,8 @@ fn test_build_plan_for_task() {
         }
 
         // Only Harvest remains in the plan
-        assert_eq!(job.plan.len(), 2);
-        match job.plan.get(1).unwrap() {
+        assert_eq!(plan.toils.len(), 2);
+        match plan.toils.get(1).unwrap() {
             ToilKind::Harvest { fixture_id } => {
                 assert_eq!(*fixture_id, FixtureId(2));
             }
