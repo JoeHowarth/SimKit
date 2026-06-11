@@ -13,6 +13,7 @@ use crate::{
         CompletedTask,
         Job,
         JobKind,
+        Plan,
         TaskBoard,
         ToilEvent,
         ToilKind,
@@ -33,42 +34,20 @@ pub fn evaluate_job(
     )>,
 ) {
     debug!("--- evaluate_job ---");
-    let (
-        world, //
-        mut toil_events,
-        items,
-        fixtures,
-    ) = params.p0();
-
-    let mut job_mutations: Vec<(PawnId, Job)> = Vec::new();
+    let (world, mut toil_events, _, _) = params.p0();
     let task_board = world.resource::<TaskBoard>();
+
+    #[derive(PartialEq, Eq)]
+    enum JobAction {
+        Replan,
+        Done,
+    }
+    let mut job_mutations: Vec<(PawnId, JobAction)> = Vec::new();
 
     for toil_event in toil_events.read() {
         debug!("Toil event: {:?}", toil_event);
 
         let job: &Job = world.comp(&toil_event.pawn_id);
-
-        let mut replan = || {
-            if let Ok(plan) = job.kind.build_plan_from_world(
-                world,
-                &toil_event.pawn_id,
-                &items,
-                &fixtures,
-            ) {
-                info!("Replanned job: {:?}", plan);
-                job_mutations.push((
-                    toil_event.pawn_id,
-                    Job {
-                        kind: job.kind,
-                        plan: Some(plan),
-                        retries: job.retries + 1,
-                    },
-                ));
-                return;
-            }
-            job_mutations.push((toil_event.pawn_id, Job::default()));
-            warn!("Failed to replan job: {:?}", job.kind);
-        };
 
         // Falls through means task is done
         match &toil_event.failure_reason {
@@ -85,7 +64,8 @@ pub fn evaluate_job(
                     let task_spec =
                         &task_board.tasks.get(&task_id).unwrap().spec;
                     if !task_spec.completed(world) {
-                        replan();
+                        job_mutations
+                            .push((toil_event.pawn_id, JobAction::Replan));
                         continue;
                     }
                 }
@@ -96,26 +76,64 @@ pub fn evaluate_job(
                     toil_event.toil
                 );
                 if job.retries < 2 {
-                    replan();
+                    job_mutations.push((toil_event.pawn_id, JobAction::Replan));
                     continue;
                 }
             }
         }
 
-        job_mutations.push((toil_event.pawn_id, Job::default()));
+        job_mutations.push((toil_event.pawn_id, JobAction::Done));
     }
 
     let (mut completed_tasks, mut pawns) = params.p1();
 
+    let mut replans = Vec::new();
     for (pawn_id, new_job) in job_mutations {
         let (_, mut job) = pawns.get_mut(&pawn_id);
 
-        if new_job.kind == JobKind::None
-            && let JobKind::Task(task_id, _) = job.kind
-        {
-            completed_tasks.write(CompletedTask(task_id));
+        match new_job {
+            JobAction::Replan => {
+                replans.push(pawn_id);
+                // clear reservations before replanning
+                let _ = job.plan.take();
+            }
+            JobAction::Done => {
+                if let JobKind::Task(task_id, _) = job.kind {
+                    info!("Completed task: {:?}", task_id);
+                    completed_tasks.write(CompletedTask(task_id));
+                }
+                *job = Job::default();
+            }
         }
+    }
 
+    let (world, _, items, fixtures) = params.p0();
+
+    let mut replanned = Vec::new();
+    for pawn_id in replans {
+        let job: &Job = world.comp(&pawn_id);
+        let plan = Plan::new(&world.resource());
+        if let Ok(plan) = job
+            .kind
+            .build_plan_from_world(world, &pawn_id, &items, &fixtures, plan)
+        {
+            info!("Replanned job: {:?}", plan);
+            replanned.push((
+                pawn_id,
+                Job {
+                    kind: job.kind,
+                    plan: Some(plan),
+                    retries: job.retries + 1,
+                },
+            ));
+        } else {
+            warn!("Failed to replan job: {:?}", job.kind);
+        }
+    }
+
+    let (_, mut pawns) = params.p1();
+    for (pawn_id, new_job) in replanned {
+        let (_, mut job) = pawns.get_mut(&pawn_id);
         *job = new_job;
     }
 }

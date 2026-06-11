@@ -1,5 +1,6 @@
 use bevy::{
     ecs::{
+        component::Mutable,
         query::{QueryData, QueryFilter, ROQueryItem},
         system::{QueryLens, SystemParam},
     },
@@ -33,7 +34,7 @@ pub struct IdQueryMut<
     D: QueryData + 'static,
     F: QueryFilter + 'static = (),
 > where
-    C: Component<Mutability = bevy::ecs::component::Mutable>,
+    C: Component<Mutability = Mutable>,
 {
     pub query: Query<'w, 's, (&'static mut C, D), F>,
     pub index: ResMut<'w, IdIndex<<C as HasSimId>::Id>>,
@@ -59,9 +60,7 @@ impl<'w, 's, C, D, F> IdQueryMut<'w, 's, C, D, F>
 where
     D: QueryData + 'static,
     F: QueryFilter + 'static,
-    C: HasSimId
-        + Component<Mutability = bevy::ecs::component::Mutable>
-        + 'static,
+    C: HasSimId + Component<Mutability = Mutable> + 'static,
 {
     pub fn get(
         &'w self,
@@ -129,6 +128,10 @@ pub trait WorldExt {
         id: &Id,
     ) -> (Mut<'_, Id::Type>, Entity);
     fn comp<C: Component, Id: SimId>(&self, id: &Id) -> &C;
+    fn comp_mut<C: Component<Mutability = Mutable>, Id: SimId>(
+        &mut self,
+        id: &Id,
+    ) -> Mut<'_, C>;
 }
 
 impl WorldExt for World {
@@ -150,6 +153,14 @@ impl WorldExt for World {
     fn comp<C: Component, Id: SimId>(&self, id: &Id) -> &C {
         let e = self.resource::<IdIndex<Id>>().get(id);
         self.get(e).unwrap()
+    }
+
+    fn comp_mut<C: Component<Mutability = Mutable>, Id: SimId>(
+        &mut self,
+        id: &Id,
+    ) -> Mut<'_, C> {
+        let e = self.resource::<IdIndex<Id>>().get(id);
+        self.get_mut(e).unwrap()
     }
 }
 

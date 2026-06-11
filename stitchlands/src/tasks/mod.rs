@@ -64,6 +64,18 @@ pub enum TaskSpec {
     },
     Plant(TileId, ItemKind),
     Build(BuildingSpec),
+    Bill {
+        recipe: Recipe,
+        target_fixture: Option<FixtureId>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Recipe {
+    pub required_items: Vec<(ItemKind, u32)>,
+    pub required_bench: Option<FixtureKind>,
+    pub work_units: u32,
+    pub output: Vec<(ItemKind, u32)>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
@@ -71,6 +83,7 @@ pub enum TaskSpecKind {
     Harvest,
     Plant,
     Build,
+    Bill,
 }
 
 impl TaskSpec {
@@ -79,6 +92,7 @@ impl TaskSpec {
             TaskSpec::Harvest { .. } => TaskSpecKind::Harvest,
             TaskSpec::Plant(_, _) => TaskSpecKind::Plant,
             TaskSpec::Build(_) => TaskSpecKind::Build,
+            TaskSpec::Bill { .. } => TaskSpecKind::Bill,
         }
     }
 
@@ -111,6 +125,13 @@ impl TaskSpec {
 
                 let fixture: &Fixture = world.comp(&fixture_id);
                 fixture.kind == building_spec.fixture_kind
+            }
+            TaskSpec::Bill {
+                recipe,
+                target_fixture,
+            } => {
+                // Trivially true for now
+                true
             }
         }
     }
@@ -223,6 +244,11 @@ pub enum ToilKind {
     },
     Harvest {
         fixture_id: FixtureId,
+    },
+    Craft {
+        recipe: Recipe,
+        target_fixture: Option<FixtureId>,
+        work_units_left: u32,
     },
 }
 

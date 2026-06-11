@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use simkit_core::fixed_point::Q40p24;
 
 use super::*;
@@ -77,10 +79,9 @@ fn test_build_plan_for_task() {
     let mut q = app.world_mut().query::<(&TileId, &Pawn, &Job)>();
     {
         let (tile, pawn, job) = q.get(app.world(), e).unwrap();
-        let plan = job.plan.unwrap();
 
         assert_eq!(job.kind, JobKind::None);
-        assert!(plan.toils.is_empty());
+        assert_eq!(job.plan, None);
 
         // Pawn starts at (1, 0) from the schematic
         assert_eq!(*tile, TileId::new(1, 0));
@@ -91,13 +92,13 @@ fn test_build_plan_for_task() {
     app.update();
     {
         let (tile, _, job) = q.get(app.world(), e).unwrap();
-        let plan = job.plan.unwrap();
+        let plan = job.plan.as_ref().unwrap();
 
         // Job assigned and plan created
         assert_eq!(job.kind, JobKind::Task(task_id, TaskSpecKind::Harvest));
 
         // Current toil should be MoveTo towards tile (2,2)
-        match &plan.toils.front() {
+        match plan.toils.front() {
             Some(ToilKind::MoveTo { target, path }) => {
                 assert_eq!(*target, TileId::new(2, 2));
                 // After one step, two steps remain: (2,1), (2,2)
@@ -123,8 +124,9 @@ fn test_build_plan_for_task() {
     app.update();
     {
         let (tile, _, job) = q.get(app.world(), e).unwrap();
+        let plan = job.plan.as_ref().unwrap();
 
-        match &job.plan.front() {
+        match plan.toils.front() {
             Some(ToilKind::MoveTo { target, path }) => {
                 assert_eq!(*target, TileId::new(2, 2));
                 assert_eq!(path.len(), 1);
@@ -132,7 +134,7 @@ fn test_build_plan_for_task() {
             other => panic!("Expected MoveTo toil, got: {:?}", other),
         }
         // Plan still has Harvest
-        assert_eq!(job.plan.len(), 2);
+        assert_eq!(plan.toils.len(), 2);
         assert_eq!(*tile, TileId::new(2, 1));
     }
 
@@ -140,11 +142,12 @@ fn test_build_plan_for_task() {
     app.update();
     {
         let (tile, _, job) = q.get(app.world(), e).unwrap();
+        let plan = job.plan.as_ref().unwrap();
 
         assert_eq!(*tile, TileId::new(2, 2));
         // Harvest is still queued
-        assert_eq!(job.plan.len(), 1);
-        matches!(job.plan.front().unwrap(), ToilKind::Harvest { .. });
+        assert_eq!(plan.toils.len(), 1);
+        matches!(plan.toils.front().unwrap(), ToilKind::Harvest { .. });
     }
 
     // Fourth update: perform Harvest; inventory gains a Berry; plan clears
@@ -155,7 +158,7 @@ fn test_build_plan_for_task() {
 
         // Harvest finished this tick; job is cleared in the same tick
         assert!(matches!(job.kind, JobKind::None));
-        assert!(job.plan.is_empty());
+        assert!(job_plan_is_empty(job));
 
         // Pawn now has a Berry in inventory
         assert!(pawn.inventory.of_kind(ItemKind::Berry).next().is_some());
@@ -217,7 +220,7 @@ fn test_harvest_then_plant() {
     {
         let (_tile, _pawn, job) = q.get(app.world(), e).unwrap();
         assert!(matches!(job.kind, JobKind::None));
-        assert!(job.plan.is_empty());
+        assert!(job_plan_is_empty(job));
     }
 
     app.update();
@@ -231,16 +234,12 @@ fn test_harvest_then_plant() {
                 panic!("expected first task Harvest, got: {:?}", other)
             }
         }
-        match &job.plan.front() {
-            Some(ToilKind::MoveTo { .. }) => {}
-            other => {
-                panic!("expected MoveTo as first toil, got: {:?}", other)
+        let plan = job_plan_toils(job).unwrap();
+        match (plan.front(), plan.get(1)) {
+            (Some(ToilKind::MoveTo { .. }), Some(ToilKind::Harvest { .. })) => {
             }
-        }
-        match job.plan.get(1) {
-            Some(ToilKind::Harvest { .. }) => {}
             other => {
-                panic!("expected Harvest action queued, got: {:?}", other)
+                panic!("expected MoveTo then Harvest plan, got: {:?}", other)
             }
         }
     }
@@ -249,7 +248,7 @@ fn test_harvest_then_plant() {
     for _ in 0..3 {
         app.update();
         let (_tile, _pawn, job) = q.get(app.world(), e).unwrap();
-        if matches!(job.plan.front(), Some(ToilKind::Harvest { .. })) {
+        if matches!(job_plan_front(job), Some(ToilKind::Harvest { .. })) {
             reached_harvest_target = true;
             break;
         }
@@ -262,7 +261,7 @@ fn test_harvest_then_plant() {
     app.update();
     {
         let (_tile, pawn, job) = q.get(app.world(), e).unwrap();
-        assert!(job.plan.is_empty());
+        assert!(job_plan_is_empty(job));
         assert!(matches!(job.kind, JobKind::None));
         assert!(pawn.inventory.of_kind(ItemKind::Berry).next().is_some());
 
@@ -279,16 +278,11 @@ fn test_harvest_then_plant() {
             }
             other => panic!("expected next task Plant, got: {:?}", other),
         }
-        match &job.plan.front() {
-            Some(ToilKind::MoveTo { .. }) => {}
+        let plan = job_plan_toils(job).unwrap();
+        match (plan.front(), plan.get(1)) {
+            (Some(ToilKind::MoveTo { .. }), Some(ToilKind::Plant { .. })) => {}
             other => {
-                panic!("expected MoveTo before Plant, got: {:?}", other)
-            }
-        }
-        match job.plan.get(1) {
-            Some(ToilKind::Plant { .. }) => {}
-            other => {
-                panic!("expected Plant action queued, got: {:?}", other)
+                panic!("expected MoveTo then Plant plan, got: {:?}", other)
             }
         }
     }
@@ -297,7 +291,7 @@ fn test_harvest_then_plant() {
     for _ in 0..3 {
         app.update();
         let (_tile, _pawn, job) = q.get(app.world(), e).unwrap();
-        if matches!(job.plan.front(), Some(ToilKind::Plant { .. })) {
+        if matches!(job_plan_front(job), Some(ToilKind::Plant { .. })) {
             reached_plant_target = true;
             break;
         }
@@ -310,7 +304,7 @@ fn test_harvest_then_plant() {
     app.update();
     {
         let (_tile, pawn, job) = q.get(app.world(), e).unwrap();
-        assert!(job.plan.is_empty());
+        assert!(job_plan_is_empty(job));
         assert!(matches!(job.kind, JobKind::None));
         assert!(pawn.inventory.of_kind(ItemKind::Berry).next().is_none());
 
@@ -323,8 +317,20 @@ fn test_harvest_then_plant() {
     {
         let (_tile, _pawn, job) = q.get(app.world(), e).unwrap();
         assert!(matches!(job.kind, JobKind::None));
-        assert!(job.plan.is_empty());
+        assert!(job_plan_is_empty(job));
     }
+}
+
+fn job_plan_toils(job: &Job) -> Option<&VecDeque<ToilKind>> {
+    job.plan.as_ref().map(|plan| &plan.toils)
+}
+
+fn job_plan_front(job: &Job) -> Option<&ToilKind> {
+    job_plan_toils(job).and_then(|toils| toils.front())
+}
+
+fn job_plan_is_empty(job: &Job) -> bool {
+    job_plan_toils(job).map_or(true, |toils| toils.is_empty())
 }
 
 pub fn fixture_cd(app: &App, fid: FixtureId) -> Option<Harvestable> {
@@ -361,8 +367,7 @@ pub fn finish_moveto(
         app,
         |app| {
             let (_t, _p, j) = q.get(app.world(), e).unwrap();
-            j.plan
-                .front()
+            job_plan_front(j)
                 .map(|t| !matches!(t, ToilKind::MoveTo { .. }))
                 .unwrap_or(false)
         },
@@ -478,7 +483,8 @@ fn test_multi_harvest_and_plant() {
             JobKind::Task(_, TaskSpecKind::Harvest) => {}
             other => panic!("expected first job Harvest, got {other:?}"),
         }
-        match (&job.plan.front(), job.plan.get(1)) {
+        let plan = job_plan_toils(job).unwrap();
+        match (plan.front(), plan.get(1)) {
             (
                 Some(ToilKind::MoveTo { .. }),
                 Some(ToilKind::Harvest { fixture_id }),
@@ -503,7 +509,8 @@ fn test_multi_harvest_and_plant() {
     // Perform the Harvest action
     let last_harvest = {
         let (_tile, _pawn, job) = q.get(app.world(), e).unwrap();
-        match job.plan.front() {
+        let plan = job_plan_toils(job).unwrap();
+        match plan.front() {
             Some(ToilKind::Harvest { fixture_id }) => *fixture_id,
             x => panic!("expected Harvest next, got {x:?}"),
         }
@@ -527,7 +534,8 @@ fn test_multi_harvest_and_plant() {
             JobKind::Task(_, TaskSpecKind::Plant) => {}
             _ => panic!("expected Plant job"),
         };
-        match (&job.plan.front(), job.plan.get(1)) {
+        let plan = job_plan_toils(job).unwrap();
+        match (plan.front(), plan.get(1)) {
             (
                 Some(ToilKind::MoveTo { .. }),
                 Some(ToilKind::Plant {
@@ -562,7 +570,8 @@ fn test_multi_harvest_and_plant() {
             JobKind::Task(_, TaskSpecKind::Harvest) => {}
             _ => panic!("expected Harvest after Plant"),
         };
-        match (&job.plan.front(), job.plan.get(1)) {
+        let plan = job_plan_toils(job).unwrap();
+        match (plan.front(), plan.get(1)) {
             (
                 Some(ToilKind::MoveTo { .. }),
                 Some(ToilKind::Harvest { fixture_id }),
@@ -579,7 +588,8 @@ fn test_multi_harvest_and_plant() {
     finish_moveto(&mut app, &mut q, e, 16);
     let last_harvest = {
         let (_tile, _pawn, job) = q.get(app.world(), e).unwrap();
-        match job.plan.front() {
+        let plan = job_plan_toils(job).unwrap();
+        match plan.front() {
             Some(ToilKind::Harvest { fixture_id }) => *fixture_id,
             _ => panic!("expected Harvest next"),
         }
@@ -597,7 +607,8 @@ fn test_multi_harvest_and_plant() {
             JobKind::Task(_, TaskSpecKind::Plant) => {}
             _ => panic!("expected Plant job"),
         };
-        match (&job.plan.front(), job.plan.get(1)) {
+        let plan = job_plan_toils(job).unwrap();
+        match (plan.front(), plan.get(1)) {
             (
                 Some(ToilKind::MoveTo { .. }),
                 Some(ToilKind::Plant { tile_id, .. }),
@@ -620,7 +631,8 @@ fn test_multi_harvest_and_plant() {
             JobKind::Task(_, TaskSpecKind::Harvest) => {}
             _ => panic!("expected Harvest job"),
         };
-        match (&job.plan.front(), job.plan.get(1)) {
+        let plan = job_plan_toils(job).unwrap();
+        match (plan.front(), plan.get(1)) {
             (
                 Some(ToilKind::MoveTo { .. }),
                 Some(ToilKind::Harvest { fixture_id }),
@@ -637,7 +649,8 @@ fn test_multi_harvest_and_plant() {
     finish_moveto(&mut app, &mut q, e, 32);
     let last_harvest = {
         let (_tile, _pawn, job) = q.get(app.world(), e).unwrap();
-        match job.plan.front() {
+        let plan = job_plan_toils(job).unwrap();
+        match plan.front() {
             Some(ToilKind::Harvest { fixture_id }) => *fixture_id,
             _ => panic!("expected Harvest next"),
         }
@@ -664,7 +677,7 @@ fn test_multi_harvest_and_plant() {
     {
         let (_tile, pawn, job) = q.get(app.world(), e).unwrap();
         assert!(matches!(job.kind, JobKind::None));
-        assert!(job.plan.is_empty());
+        assert!(job_plan_is_empty(job));
         assert_eq!(pawn.inventory.of_kind(ItemKind::Berry).count(), 1);
         assert!(pawn.hunger > Q40p24::from(95), "hunger: {:?}", pawn.hunger);
         assert!(pawn.sleep > Q40p24::from(60), "sleep: {:?}", pawn.sleep);
@@ -854,12 +867,26 @@ fn test_construction() {
         pawns: vec![PawnDef {
             id: Some(1),
             name: Some("Veronica".into()),
-            inventory: vec![ItemDef {
-                id: Some(1),
-                kind: ItemKind::Wood,
-                qty: 1,
-                pos: Some(TileId::new(0, 0)),
-            }],
+            inventory: vec![
+                ItemDef {
+                    id: Some(1),
+                    kind: ItemKind::Wood,
+                    qty: 1,
+                    pos: Some(TileId::new(0, 0)),
+                },
+                ItemDef {
+                    id: Some(2),
+                    kind: ItemKind::Wood,
+                    qty: 1,
+                    pos: Some(TileId::new(0, 0)),
+                },
+                ItemDef {
+                    id: Some(3),
+                    kind: ItemKind::Wood,
+                    qty: 1,
+                    pos: Some(TileId::new(0, 0)),
+                },
+            ],
             ..Default::default()
         }],
         ..default()

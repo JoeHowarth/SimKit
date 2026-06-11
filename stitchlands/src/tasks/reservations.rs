@@ -12,7 +12,7 @@ pub enum ReservationKey {
     Fixture(FixtureId),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ReservationGuard {
     pub key: ReservationKey,
     pub reservations: Reservations,
@@ -73,7 +73,7 @@ impl From<FixtureId> for ReservationKey {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct HeldReservations {
     held: HashMap<ReservationKey, ReservationGuard>,
     pub handle: Reservations,
@@ -93,6 +93,17 @@ impl HeldReservations {
             held: HashMap::new(),
             handle: res.clone(),
         }
+    }
+
+    pub fn try_ensure(
+        &mut self,
+        key: impl Into<ReservationKey>,
+    ) -> Result<(), String> {
+        let key = key.into();
+        if self.held.contains_key(&key) {
+            return Ok(());
+        }
+        self.try_reserve(key)
     }
 
     pub fn try_reserve(

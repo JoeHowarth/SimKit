@@ -10,11 +10,12 @@ impl JobKind {
         pawn_id: &PawnId,
         items: &ItemQuery<&ItemRelation>,
         fixtures: &FixtureQuery,
+        plan: Plan,
     ) -> Result<Plan, String> {
         self.build_plan(
+            plan,
             world.comp(pawn_id),
             world.comp(pawn_id),
-            world.resource(),
             world.resource(),
             items,
             fixtures,
@@ -24,29 +25,27 @@ impl JobKind {
 
     pub fn build_plan(
         &self,
+        plan: Plan,
         pawn: &Pawn,
         pawn_tile: &TileId,
         tasks: &TaskBoard,
-        reservations: &Reservations,
         items: &ItemQuery<&ItemRelation>,
         fixtures: &FixtureQuery,
         fixture_tile_index: &TileMapIndex<FixtureId>,
     ) -> Result<Plan, String> {
         match self {
-            JobKind::Sleep => {
-                build_sleep_plan(pawn_tile, fixtures, reservations)
-            }
+            JobKind::Sleep => build_sleep_plan(plan, pawn_tile, fixtures),
             JobKind::Eat => {
-                build_eat_plan(pawn, pawn_tile, items, fixtures, reservations)
+                build_eat_plan(plan, pawn, pawn_tile, items, fixtures)
             }
             JobKind::Task(task_id, _) => build_plan_for_task(
+                plan,
                 tasks.tasks.get(task_id).unwrap(),
                 pawn,
                 pawn_tile,
                 items,
                 fixtures,
                 fixture_tile_index,
-                reservations,
             ),
             JobKind::None => Err("No plan for none job".to_string()),
         }
@@ -54,15 +53,14 @@ impl JobKind {
 }
 
 pub fn build_plan_for_task(
+    mut plan: Plan,
     task: &Task,
     pawn: &Pawn,
     pawn_tile: &TileId,
     items: &ItemQuery<&ItemRelation>,
     fixtures: &FixtureQuery,
     fixture_tile_index: &TileMapIndex<FixtureId>,
-    reservations: &Reservations,
 ) -> Result<Plan, String> {
-    let mut plan = Plan::new(reservations);
     match &task.spec {
         TaskSpec::Harvest { to_harvest, .. } => {
             let (_, (fixture_tile, harvestable, _)) = fixtures.get(to_harvest);
@@ -133,7 +131,7 @@ pub fn build_plan_for_task(
                 };
 
             let construction_site = fixtures.get(&construction_site_id).0;
-            plan.reservations.try_reserve(construction_site_id)?;
+            plan.reservations.try_ensure(construction_site_id)?;
 
             for (item_kind, qty) in &building_spec.required_items {
                 // Reserve all items in the construction site inventory
@@ -141,7 +139,7 @@ pub fn build_plan_for_task(
                     .inventory
                     .of_kind(*item_kind)
                     .try_for_each(|item_id| {
-                        plan.reservations.try_reserve(item_id)
+                        plan.reservations.try_ensure(item_id)
                     })
                 {
                     panic!("Failed to reserve items: {}", e);
@@ -180,24 +178,27 @@ pub fn build_plan_for_task(
 }
 
 pub fn build_sleep_plan(
+    mut plan: Plan,
     pawn_pos: &TileId,
     fixtures: &FixtureQuery,
-    reservations: &Reservations,
 ) -> Result<Plan, String> {
     let sleeping_pad = fixtures
         .query
         .iter()
         .filter(|(fixture, _)| fixture.kind == FixtureKind::SleepingPad)
-        .filter(|(fixture, (_, _, _))| !reservations.is_reserved(fixture.id))
+        .filter(|(fixture, (_, _, _))| {
+            // if we hold the reservation or if no one else has it
+            plan.reservations.is_reserved(fixture.id)
+                || !plan.reservations.handle.is_reserved(fixture.id)
+        })
         .min_by_key(|(_, (pos, _, _))| manhattan(*pawn_pos, **pos));
 
     let Some((sleeping_pad, (sleeping_pad_pos, _, _))) = sleeping_pad else {
         return Err(format!("No sleeping pad found for pawn {:?}", pawn_pos));
     };
 
-    let mut plan = Plan::new(reservations);
     plan.move_to_adj(*pawn_pos, *sleeping_pad_pos)?;
-    plan.reservations.try_reserve(sleeping_pad.id)?;
+    plan.reservations.try_ensure(sleeping_pad.id)?;
     plan.toils.push_back(ToilKind::Sleep {
         fixture_id: sleeping_pad.id,
     });
@@ -205,13 +206,12 @@ pub fn build_sleep_plan(
 }
 
 pub fn build_eat_plan(
+    mut plan: Plan,
     pawn: &Pawn,
     pawn_tile: &TileId,
     items: &ItemQuery<&ItemRelation>,
     fixtures: &FixtureQuery,
-    reservations: &Reservations,
 ) -> Result<Plan, String> {
-    let mut plan = Plan::new(reservations);
     let (item_id, _item_pos) = build_acquire_item_plan(
         pawn,
         pawn_tile,

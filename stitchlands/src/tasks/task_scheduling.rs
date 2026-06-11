@@ -31,13 +31,14 @@ pub(super) fn schedule_pawns(
                     job.kind, preempt
                 );
 
+                let plan = Plan::new(&reservations);
                 // Build the preempt plan first; only switch if planning
                 // succeeds
                 match preempt.build_plan(
+                    plan,
                     pawn,
                     pos,
                     &task_board,
-                    &reservations,
                     &items,
                     &fixtures,
                     &fixture_tile_index,
@@ -120,7 +121,8 @@ fn next_job_is_needs(
 ) -> Option<Job> {
     // Sleep and eat threshold are lower than when we have a job
     if pawn.hunger < Q40p24::from(60) {
-        match build_eat_plan(pawn, pos, items, fixtures, reservations) {
+        let plan = Plan::new(reservations);
+        match build_eat_plan(plan, pawn, pos, items, fixtures) {
             Ok(plan) => {
                 return Some(Job::new(JobKind::Eat, plan));
             }
@@ -131,7 +133,8 @@ fn next_job_is_needs(
     }
 
     if pawn.sleep < Q40p24::from(60) {
-        match build_sleep_plan(pos, fixtures, reservations) {
+        let plan = Plan::new(reservations);
+        match build_sleep_plan(plan, pos, fixtures) {
             Ok(plan) => {
                 return Some(Job::new(JobKind::Sleep, plan));
             }
@@ -186,14 +189,15 @@ fn choose_next_job(
         });
 
         while let Some((_, task)) = tasks.pop() {
+            let plan = Plan::new(reservations);
             match build_plan_for_task(
+                plan,
                 task,
                 pawn,
                 pos,
                 items,
                 fixtures,
                 fixture_tile_index,
-                &reservations,
             ) {
                 Ok(plan) => {
                     let kind = JobKind::Task(task.id, task.spec.kind());
